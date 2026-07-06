@@ -38,8 +38,13 @@ button, sword-skin gacha chest with the odds disclosure, gem shop), RUNNING
   lane-quantized collision, coin banking (delta-banked so revive can't
   double-count), one ad-revive per run. Coins/barriers are fixed pre-allocated
   pools recycled via an `active` flag; renderer binds one ModelInstance per slot.
-- `assets/VoxelModelFactory` — procedural voxel Models (runner kid, coin,
-  barrier, track tile, sword; legacy anvil/counter/ground) via ModelBuilder;
+- `characters/CharacterCatalog` — the 5 selectable runners (`CharacterSpec`:
+  colors, `HeadStyle`, proportions). Purely cosmetic; identical gameplay stats
+  by design (no pay-to-win for the under-16 audience). First launch shows the
+  HUD's onboarding select screen (`showCharacterSelect`); choice persists.
+- `assets/VoxelModelFactory` — procedural voxel Models (parametrized character
+  body/leg/arm from a CharacterSpec, coin, barrier, track tile, sword; legacy
+  anvil/counter/ground) via ModelBuilder;
   `applyRarityTraits` recolors the sword's `"blade"` material for gacha rarity
   tint + glow — the sword rides on the runner's back as the cosmetic skin.
 - `economy/EconomyManager` — gold + gems; the only mutation path for balances.

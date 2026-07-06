@@ -20,6 +20,7 @@ import com.badlogic.gdx.utils.Disposable
 import com.badlogic.gdx.utils.viewport.ScreenViewport
 import com.badlogic.gdx.utils.StringBuilder as GdxStringBuilder
 import com.forgeflail.core.ForgeFlailGame
+import com.forgeflail.core.characters.CharacterSpec
 import com.forgeflail.core.economy.EconomyManager
 import com.forgeflail.core.gacha.GachaSystem
 import com.forgeflail.core.gacha.Rarity
@@ -76,6 +77,9 @@ class GameHud(
     private val readyPanel: Table
     private val bestLabel: Label
     private val deadPanel: Table
+    private val selectPanel: Table
+    private val charNameLabel: Label
+    private val charIntroLabel: Label
     private val resultLabel: Label
     private val reviveButton: TextButton
     private val doubleButton: TextButton
@@ -114,6 +118,35 @@ class GameHud(
         root.row()
 
         root.add().expand() // spacer: panels hug the bottom
+        root.row()
+
+        // --- SELECT: onboarding / character choice ---------------------------
+        // The chosen character spins center-stage in the 3D scene behind this.
+        charNameLabel = Label("", Label.LabelStyle(font, Color.valueOf("FFD54F"))).apply {
+            setAlignment(Align.center)
+            setFontScale(1.5f)
+        }
+        charIntroLabel = Label("", labelStyle).apply {
+            setWrap(true)
+            setAlignment(Align.center)
+        }
+        selectPanel = Table()
+        selectPanel.background = solid(0.05f, 0.1f, 0.22f, 0.85f)
+        selectPanel.pad(10f)
+        selectPanel.add(Label("Choose your runner!", labelStyle).apply { setAlignment(Align.center) })
+            .growX().colspan(3).padBottom(6f)
+        selectPanel.row()
+        selectPanel.add(charNameLabel).growX().colspan(3)
+        selectPanel.row()
+        selectPanel.add(charIntroLabel).growX().colspan(3).padBottom(8f)
+        selectPanel.row()
+        selectPanel.add(button("  <  ") { game.cycleCharacter(-1) }).height(52f).width(64f)
+        selectPanel.add(button("Start Running!") { game.startRun() }).height(52f).growX().pad(0f, 8f, 0f, 8f)
+        selectPanel.add(button("  >  ") { game.cycleCharacter(1) }).height(52f).width(64f)
+        selectPanel.row()
+        selectPanel.add(button("Menu") { game.backToMenu() }).height(40f).colspan(3).padTop(6f)
+        selectPanel.isVisible = false
+        root.add(selectPanel).growX().padBottom(4f)
         root.row()
 
         // --- DEAD: game-over panel ------------------------------------------
@@ -162,6 +195,8 @@ class GameHud(
         readyPanel.add(Label(oddsText, Label.LabelStyle(font, Color.valueOf("C8CFDA"))))
             .padTop(4f).padBottom(8f)
         readyPanel.row()
+        readyPanel.add(button("Characters") { game.openCharacterSelect() }).height(44f).growX().padBottom(8f)
+        readyPanel.row()
         val shopRow = Table()
         for (pack in GemStoreCatalog.PACKS) {
             shopRow.add(button("${pack.gems} gems\n${pack.priceHint}") {
@@ -191,7 +226,17 @@ class GameHud(
         toastLabel.setText(message)
     }
 
+    /** Onboarding / character-select screen; also updates on prev/next cycling. */
+    fun showCharacterSelect(spec: CharacterSpec) {
+        selectPanel.isVisible = true
+        readyPanel.isVisible = false
+        deadPanel.isVisible = false
+        charNameLabel.setText(spec.displayName)
+        charIntroLabel.setText(spec.intro)
+    }
+
     fun setReady(bestScore: Int) {
+        selectPanel.isVisible = false
         readyPanel.isVisible = true
         deadPanel.isVisible = false
         // Note: the default BitmapFont lacks em-dash and similar glyphs — ASCII only.
@@ -201,6 +246,7 @@ class GameHud(
     }
 
     fun setRunning() {
+        selectPanel.isVisible = false
         readyPanel.isVisible = false
         deadPanel.isVisible = false
         coinCountLabel.setText("0")
@@ -214,6 +260,7 @@ class GameHud(
     }
 
     fun onRunEnded(distanceMeters: Int, runCoins: Int, bestScore: Int, canRevive: Boolean, canDouble: Boolean) {
+        selectPanel.isVisible = false
         readyPanel.isVisible = false
         deadPanel.isVisible = true
         reviveButton.isVisible = canRevive

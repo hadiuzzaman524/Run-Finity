@@ -12,6 +12,8 @@ import com.badlogic.gdx.graphics.g3d.utils.shapebuilders.BoxShapeBuilder
 import com.badlogic.gdx.graphics.g3d.utils.shapebuilders.CylinderShapeBuilder
 import com.badlogic.gdx.utils.Array as GdxArray
 import com.badlogic.gdx.utils.Disposable
+import com.forgeflail.core.characters.CharacterSpec
+import com.forgeflail.core.characters.HeadStyle
 import com.forgeflail.core.gacha.Rarity
 
 /**
@@ -86,58 +88,96 @@ class VoxelModelFactory : Disposable {
     // ------------------------------------------------------------------
 
     /**
-     * Gopal Bhar-cartoon-style voxel kid, split into animatable parts. This is
-     * the BODY: yellow kurta over a big round belly, red gamcha scarf around the
-     * neck with tails over the shoulders, bald crown with a black hair fringe
-     * around the sides/back, thick eyebrows, big nose, smile. He faces -Z;
+     * Cartoon-proportioned voxel runner body built from a [CharacterSpec]:
+     * oversized head (cartoon ratio), white eyes with pupils, brows, big nose,
+     * smile, kurta/shirt over a belly sized by `spec.fat`, optional gamcha
+     * scarf, and a per-style headdress (fringe/hair/turban/robot). Faces -Z;
      * origin at ground level under the hips. Legs/arms are separate models
-     * ([createGopalLeg]/[createGopalArm]) so the game can swing them per frame.
+     * ([createCharacterLeg]/[createCharacterArm]) so the game swings them.
      */
-    fun createGopalBody(): Model {
-        val skin = material(GOPAL_SKIN)
-        val kurta = material(GOPAL_KURTA)
-        val scarf = material(GOPAL_SCARF)
-        val dark = material(GOPAL_DARK)
+    fun createCharacterBody(spec: CharacterSpec): Model {
+        val skin = material(spec.skin)
+        val top = material(spec.top)
+        val hair = material(spec.hair)
+        val accent = material(spec.accent)
+        val f = spec.fat
+        val robot = spec.headStyle == HeadStyle.ROBOT
         modelBuilder.begin()
-        // Yellow kurta: skirt over the hips, fat belly, chest.
-        box("kurta_skirt", kurta, 0f, 0.66f, 0f, 0.74f, 0.3f, 0.5f)
-        box("belly", kurta, 0f, 1.0f, 0f, 0.8f, 0.42f, 0.54f)
-        box("chest", kurta, 0f, 1.28f, 0f, 0.66f, 0.2f, 0.46f)
-        // Red gamcha: collar plus a tail over each shoulder (one falls front,
-        // one back, so it reads from both the menu and the chase camera).
-        box("scarf_collar", scarf, 0f, 1.43f, 0f, 0.56f, 0.13f, 0.44f)
-        box("scarf_front", scarf, -0.2f, 1.16f, -0.26f, 0.15f, 0.5f, 0.06f)
-        box("scarf_back", scarf, 0.2f, 1.2f, 0.26f, 0.15f, 0.42f, 0.06f)
-        // Big round head: bald on top, black fringe around sides/back.
-        box("head", skin, 0f, 1.68f, 0f, 0.56f, 0.46f, 0.5f)
-        box("hair_l", dark, -0.3f, 1.58f, 0.06f, 0.06f, 0.24f, 0.38f)
-        box("hair_r", dark, 0.3f, 1.58f, 0.06f, 0.06f, 0.24f, 0.38f)
-        box("hair_back", dark, 0f, 1.58f, 0.27f, 0.52f, 0.24f, 0.06f)
-        box("ear_l", skin, -0.31f, 1.66f, -0.06f, 0.07f, 0.15f, 0.13f)
-        box("ear_r", skin, 0.31f, 1.66f, -0.06f, 0.07f, 0.15f, 0.13f)
-        // Face on the -Z side: brows, eyes, big nose, smile.
-        box("brow_l", dark, -0.12f, 1.8f, -0.26f, 0.13f, 0.05f, 0.03f)
-        box("brow_r", dark, 0.12f, 1.8f, -0.26f, 0.13f, 0.05f, 0.03f)
-        box("eye_l", dark, -0.12f, 1.73f, -0.26f, 0.08f, 0.08f, 0.03f)
-        box("eye_r", dark, 0.12f, 1.73f, -0.26f, 0.08f, 0.08f, 0.03f)
-        box("nose", skin, 0f, 1.65f, -0.3f, 0.11f, 0.15f, 0.12f)
-        box("mouth", material(GOPAL_MOUTH), 0f, 1.55f, -0.26f, 0.2f, 0.05f, 0.03f)
+
+        // Torso: skirt over the hips, belly, chest — widths scale with fat.
+        box("skirt", top, 0f, 0.66f, 0f, 0.72f * f, 0.3f, 0.5f * f)
+        box("belly", top, 0f, 1.0f, 0f, 0.8f * f, 0.42f, 0.54f * f)
+        box("chest", top, 0f, 1.28f, 0f, 0.66f * f, 0.2f, 0.46f * f)
+        if (spec.hasScarf) {
+            box("scarf_collar", accent, 0f, 1.43f, 0f, 0.56f, 0.13f, 0.44f)
+            box("scarf_front", accent, -0.2f, 1.16f, -0.26f * f, 0.15f, 0.5f, 0.06f)
+            box("scarf_back", accent, 0.2f, 1.2f, 0.26f * f, 0.15f, 0.42f, 0.06f)
+        }
+
+        // Oversized cartoon head with a rounding cap on top.
+        box("head", skin, 0f, 1.72f, 0f, 0.62f, 0.5f, 0.56f)
+        if (spec.headStyle == HeadStyle.BALD_FRINGE || robot) {
+            box("head_top", skin, 0f, 2.0f, 0f, 0.46f, 0.12f, 0.42f)
+        }
+        box("ear_l", skin, -0.34f, 1.7f, -0.04f, 0.07f, 0.16f, 0.14f)
+        box("ear_r", skin, 0.34f, 1.7f, -0.04f, 0.07f, 0.16f, 0.14f)
+
+        when (spec.headStyle) {
+            HeadStyle.BALD_FRINGE -> {
+                box("fringe_l", hair, -0.33f, 1.6f, 0.08f, 0.06f, 0.26f, 0.4f)
+                box("fringe_r", hair, 0.33f, 1.6f, 0.08f, 0.06f, 0.26f, 0.4f)
+                box("fringe_back", hair, 0f, 1.6f, 0.3f, 0.58f, 0.26f, 0.06f)
+            }
+            HeadStyle.HAIR_CAP -> {
+                box("hair_cap", hair, 0f, 1.99f, 0.02f, 0.68f, 0.16f, 0.62f)
+                box("hair_back", hair, 0f, 1.74f, 0.3f, 0.64f, 0.48f, 0.07f)
+            }
+            HeadStyle.LONG_HAIR -> {
+                box("hair_cap", hair, 0f, 1.99f, 0.02f, 0.68f, 0.16f, 0.62f)
+                box("hair_back", hair, 0f, 1.72f, 0.3f, 0.64f, 0.52f, 0.07f)
+                box("hair_long", hair, 0f, 1.32f, 0.3f, 0.44f, 0.5f, 0.07f)
+                box("hair_tie", accent, 0f, 1.44f, 0.31f, 0.2f, 0.07f, 0.09f)
+            }
+            HeadStyle.TURBAN -> {
+                box("turban_base", accent, 0f, 2.0f, 0f, 0.72f, 0.22f, 0.64f)
+                box("turban_top", accent, 0f, 2.14f, 0f, 0.52f, 0.15f, 0.46f)
+                box("turban_knot", accent, 0f, 2.25f, -0.06f, 0.13f, 0.11f, 0.13f)
+            }
+            HeadStyle.ROBOT -> {
+                box("antenna", hair, 0f, 2.14f, 0f, 0.05f, 0.18f, 0.05f)
+                box("antenna_tip", material(spec.accent, spec.accent, emissiveScale = 0.7f), 0f, 2.26f, 0f, 0.1f, 0.1f, 0.1f)
+            }
+        }
+
+        // Cartoon face on the -Z side: white eyes + pupils, brows, nose, smile.
+        val eyeWhite = if (robot) material(spec.accent, spec.accent, emissiveScale = 0.6f) else material(Color.WHITE)
+        box("eye_l", eyeWhite, -0.14f, 1.78f, -0.29f, 0.13f, 0.14f, 0.03f)
+        box("eye_r", eyeWhite, 0.14f, 1.78f, -0.29f, 0.13f, 0.14f, 0.03f)
+        if (!robot) {
+            val dark = material(GOPAL_DARK)
+            box("pupil_l", dark, -0.13f, 1.77f, -0.305f, 0.055f, 0.07f, 0.02f)
+            box("pupil_r", dark, 0.13f, 1.77f, -0.305f, 0.055f, 0.07f, 0.02f)
+            box("brow_l", hair, -0.14f, 1.89f, -0.29f, 0.15f, 0.05f, 0.03f)
+            box("brow_r", hair, 0.14f, 1.89f, -0.29f, 0.15f, 0.05f, 0.03f)
+            box("nose", skin, 0f, 1.68f, -0.33f, 0.12f, 0.17f, 0.12f)
+        }
+        box("mouth", material(GOPAL_MOUTH), 0f, 1.56f, -0.29f, 0.22f, 0.05f, 0.03f)
         return track(modelBuilder.end())
     }
 
-    /** One red-trouser leg with a shoe. Origin at the HIP so rotating X swings it. */
-    fun createGopalLeg(): Model {
+    /** One trouser leg with a shoe. Origin at the HIP so rotating X swings it. */
+    fun createCharacterLeg(spec: CharacterSpec): Model {
         modelBuilder.begin()
-        box("leg", material(GOPAL_PANTS), 0f, -0.26f, 0f, 0.22f, 0.5f, 0.24f)
-        box("shoe", material(GOPAL_DARK), 0f, -0.53f, -0.04f, 0.23f, 0.09f, 0.32f)
+        box("leg", material(spec.bottom), 0f, -0.26f, 0f, 0.22f, 0.5f, 0.24f)
+        box("shoe", material(spec.shoe), 0f, -0.53f, -0.04f, 0.23f, 0.09f, 0.32f)
         return track(modelBuilder.end())
     }
 
-    /** One yellow kurta sleeve with a bare hand. Origin at the SHOULDER. */
-    fun createGopalArm(): Model {
+    /** One sleeve with a hand. Origin at the SHOULDER. */
+    fun createCharacterArm(spec: CharacterSpec): Model {
         modelBuilder.begin()
-        box("sleeve", material(GOPAL_KURTA), 0f, -0.18f, 0f, 0.19f, 0.38f, 0.21f)
-        box("hand", material(GOPAL_SKIN), 0f, -0.43f, 0f, 0.16f, 0.15f, 0.18f)
+        box("sleeve", material(spec.top), 0f, -0.18f, 0f, 0.19f, 0.38f, 0.21f)
+        box("hand", material(spec.skin), 0f, -0.43f, 0f, 0.16f, 0.15f, 0.18f)
         return track(modelBuilder.end())
     }
 
@@ -256,10 +296,6 @@ class VoxelModelFactory : Disposable {
         private val SWORD_GOLD = Color.valueOf("F2B234")
         private val SWORD_GRIP = Color.valueOf("7B4B2A")
         private val GRASS = Color.valueOf("7BC950")
-        private val GOPAL_SKIN = Color.valueOf("F2CB9B")
-        private val GOPAL_KURTA = Color.valueOf("F0B429")
-        private val GOPAL_PANTS = Color.valueOf("D62828")
-        private val GOPAL_SCARF = Color.valueOf("C1121F")
         private val GOPAL_DARK = Color.valueOf("22201D")
         private val GOPAL_MOUTH = Color.valueOf("A64633")
         private val COIN_GOLD = Color.valueOf("FFD54F")

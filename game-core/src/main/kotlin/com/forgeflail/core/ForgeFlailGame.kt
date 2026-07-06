@@ -17,6 +17,7 @@ import com.badlogic.gdx.input.GestureDetector
 import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector3
 import com.forgeflail.core.assets.VoxelModelFactory
+import com.forgeflail.core.characters.CharacterCatalog
 import com.forgeflail.core.economy.EconomyManager
 import com.forgeflail.core.gacha.Blueprint
 import com.forgeflail.core.gacha.GachaSystem
@@ -61,12 +62,13 @@ class ForgeFlailGame(
     private lateinit var trackTiles: kotlin.Array<ModelInstance>
     private val trackTileZ = floatArrayOf(-10f, -10f - VoxelModelFactory.TRACK_TILE_LENGTH)
 
-    // Articulated player: body + limbs animated separately for the run cycle.
-    private lateinit var bodyInstance: ModelInstance
-    private lateinit var legLeft: ModelInstance
-    private lateinit var legRight: ModelInstance
-    private lateinit var armLeft: ModelInstance
-    private lateinit var armRight: ModelInstance
+    // Articulated player, one part-set per roster character; the selected
+    // index picks which set renders. Limbs animate separately for the run cycle.
+    private lateinit var bodies: kotlin.Array<ModelInstance>
+    private lateinit var legsLeft: kotlin.Array<ModelInstance>
+    private lateinit var legsRight: kotlin.Array<ModelInstance>
+    private lateinit var armsLeft: kotlin.Array<ModelInstance>
+    private lateinit var armsRight: kotlin.Array<ModelInstance>
     private lateinit var swordInstance: ModelInstance
     private lateinit var coinInstances: kotlin.Array<ModelInstance>
     private lateinit var barrierInstances: kotlin.Array<ModelInstance>
@@ -90,6 +92,8 @@ class ForgeFlailGame(
     private var coinSpinDegrees = 0f
     private var runPhase = 0f
     private var playerYaw = 180f // faces the camera in the menu, -Z when running
+    private var selectedCharacter = 0
+    private var characterSelectOpen = false
 
     // ========================================================================
     // Pre-allocated callbacks — one instance each for the app's lifetime.
@@ -217,13 +221,14 @@ class ForgeFlailGame(
         voxelFactory = VoxelModelFactory()
         val trackModel = voxelFactory.createTrackTile()
         trackTiles = kotlin.Array(2) { ModelInstance(trackModel) }
-        bodyInstance = ModelInstance(voxelFactory.createGopalBody())
-        val legModel = voxelFactory.createGopalLeg()
-        legLeft = ModelInstance(legModel)
-        legRight = ModelInstance(legModel)
-        val armModel = voxelFactory.createGopalArm()
-        armLeft = ModelInstance(armModel)
-        armRight = ModelInstance(armModel)
+        val roster = CharacterCatalog.ROSTER
+        bodies = kotlin.Array(roster.size) { ModelInstance(voxelFactory.createCharacterBody(roster[it])) }
+        val legModels = kotlin.Array(roster.size) { voxelFactory.createCharacterLeg(roster[it]) }
+        legsLeft = kotlin.Array(roster.size) { ModelInstance(legModels[it]) }
+        legsRight = kotlin.Array(roster.size) { ModelInstance(legModels[it]) }
+        val armModels = kotlin.Array(roster.size) { voxelFactory.createCharacterArm(roster[it]) }
+        armsLeft = kotlin.Array(roster.size) { ModelInstance(armModels[it]) }
+        armsRight = kotlin.Array(roster.size) { ModelInstance(armModels[it]) }
         swordInstance = ModelInstance(voxelFactory.createSword())
         voxelFactory.applyRarityTraits(swordInstance, equippedRarity)
         val coinModel = voxelFactory.createCoin()
@@ -236,8 +241,17 @@ class ForgeFlailGame(
         // -- HUD + input (UI first, then swipes, then keys)
         val hud = GameHud(this, economy, runner)
         this.hud = hud
-        hud.setReady(bestScore)
         Gdx.input.inputProcessor = InputMultiplexer(hud.stage, GestureDetector(gestureListener), keyInput)
+
+        // First launch: onboarding — meet the runners and pick one.
+        val savedCharacter = save.loadSelectedCharacter()
+        if (savedCharacter < 0) {
+            selectedCharacter = 0
+            openCharacterSelect()
+        } else {
+            selectedCharacter = savedCharacter.coerceIn(0, CharacterCatalog.ROSTER.size - 1)
+            hud.setReady(bestScore)
+        }
 
         created = true
     }
@@ -259,11 +273,16 @@ class ForgeFlailGame(
         Gdx.gl.glClearColor(0.45f, 0.71f, 0.95f, 1f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
-        // Player pose: yaw eases 180° (facing camera in menus) <-> 0° (running),
-        // limbs swing with speed, whole body bobs while grounded.
+        // Player pose: yaw eases 180° (facing camera in menus) <-> 0° (running);
+        // on the character-select screen he slowly spins as a showcase. Limbs
+        // swing with speed, whole body bobs while grounded.
         val running = runner.state == RunnerSystem.State.RUNNING
-        val targetYaw = if (running) 0f else 180f
-        playerYaw += (targetYaw - playerYaw) * (8f * delta).coerceAtMost(1f)
+        if (characterSelectOpen) {
+            playerYaw = (playerYaw + 40f * delta) % 360f
+        } else {
+            val targetYaw = if (running) 0f else 180f
+            playerYaw += (targetYaw - playerYaw) * (8f * delta).coerceAtMost(1f)
+        }
         if (running && runner.playerY == 0f) runPhase += delta * runner.speed * 1.4f
         val bob = if (running && runner.playerY == 0f) Math.abs(MathUtils.sin(runPhase)) * 0.06f else 0f
         val swing = if (running) MathUtils.sin(runPhase) * 38f else 0f
@@ -271,20 +290,22 @@ class ForgeFlailGame(
         val py = runner.playerY + bob
         val lean = if (running) -7f else 0f
 
-        bodyInstance.transform
+        val ci = selectedCharacter
+        val armX = 0.33f + 0.14f * CharacterCatalog.ROSTER[ci].fat // shoulder tracks belly width
+        bodies[ci].transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw).rotate(Vector3.X, lean)
-        legLeft.transform
+        legsLeft[ci].transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw).rotate(Vector3.X, lean)
             .translate(-0.15f, 0.62f, 0f).rotate(Vector3.X, swing)
-        legRight.transform
+        legsRight[ci].transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw).rotate(Vector3.X, lean)
             .translate(0.15f, 0.62f, 0f).rotate(Vector3.X, -swing)
-        armLeft.transform
+        armsLeft[ci].transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw).rotate(Vector3.X, lean)
-            .translate(-0.47f, 1.34f, 0f).rotate(Vector3.X, -swing * 0.8f)
-        armRight.transform
+            .translate(-armX, 1.34f, 0f).rotate(Vector3.X, -swing * 0.8f)
+        armsRight[ci].transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw).rotate(Vector3.X, lean)
-            .translate(0.47f, 1.34f, 0f).rotate(Vector3.X, swing * 0.8f)
+            .translate(armX, 1.34f, 0f).rotate(Vector3.X, swing * 0.8f)
         // Sword strapped diagonally across the back (blade is +Y in model space).
         swordInstance.transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw)
@@ -298,11 +319,11 @@ class ForgeFlailGame(
         modelBatch.begin(camera)
         modelBatch.render(trackTiles[0].also { it.transform.setToTranslation(0f, 0f, trackTileZ[0]) }, environment)
         modelBatch.render(trackTiles[1].also { it.transform.setToTranslation(0f, 0f, trackTileZ[1]) }, environment)
-        modelBatch.render(bodyInstance, environment)
-        modelBatch.render(legLeft, environment)
-        modelBatch.render(legRight, environment)
-        modelBatch.render(armLeft, environment)
-        modelBatch.render(armRight, environment)
+        modelBatch.render(bodies[ci], environment)
+        modelBatch.render(legsLeft[ci], environment)
+        modelBatch.render(legsRight[ci], environment)
+        modelBatch.render(armsLeft[ci], environment)
+        modelBatch.render(armsRight[ci], environment)
         modelBatch.render(swordInstance, environment)
         for (i in runner.coins.indices) { // indexed loops: no iterator allocation
             val coin = runner.coins[i]
@@ -334,7 +355,7 @@ class ForgeFlailGame(
 
     override fun pause() {
         if (!created) return
-        save.persistRunner(economy.gold, economy.gems, bestScore, equippedRarity.ordinal)
+        save.persistRunner(economy.gold, economy.gems, bestScore, equippedRarity.ordinal, selectedCharacter)
     }
 
     override fun dispose() {
@@ -351,6 +372,7 @@ class ForgeFlailGame(
 
     /** "RUN!" / "Run again" buttons. */
     fun startRun() {
+        characterSelectOpen = false
         coinsDoubledThisRun = false
         runner.startRun()
         hud?.setRunning()
@@ -358,7 +380,21 @@ class ForgeFlailGame(
 
     /** "Menu" button on the game-over panel. */
     fun backToMenu() {
+        characterSelectOpen = false
         hud?.setReady(bestScore)
+    }
+
+    /** Onboarding on first launch; later via the menu's "Characters" button. */
+    fun openCharacterSelect() {
+        characterSelectOpen = true
+        hud?.showCharacterSelect(CharacterCatalog.ROSTER[selectedCharacter])
+    }
+
+    /** Prev/next arrows on the select screen. */
+    fun cycleCharacter(direction: Int) {
+        val n = CharacterCatalog.ROSTER.size
+        selectedCharacter = (selectedCharacter + direction + n) % n
+        hud?.showCharacterSelect(CharacterCatalog.ROSTER[selectedCharacter])
     }
 
     /** "Revive (watch ad)" — once per run, ad-only by design (see RunnerSystem.revive). */
