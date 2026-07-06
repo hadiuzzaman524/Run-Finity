@@ -72,6 +72,17 @@ class ForgeFlailGame(
     private lateinit var swordInstance: ModelInstance
     private lateinit var coinInstances: kotlin.Array<ModelInstance>
     private lateinit var barrierInstances: kotlin.Array<ModelInstance>
+    private lateinit var shadowInstance: ModelInstance
+
+    // Coin-burst sparkles: fixed pool, plain float state, zero allocation.
+    private lateinit var sparkleInstances: kotlin.Array<ModelInstance>
+    private val sparkleX = FloatArray(MAX_SPARKLES)
+    private val sparkleY = FloatArray(MAX_SPARKLES)
+    private val sparkleZ = FloatArray(MAX_SPARKLES)
+    private val sparkleVX = FloatArray(MAX_SPARKLES)
+    private val sparkleVY = FloatArray(MAX_SPARKLES)
+    private val sparkleVZ = FloatArray(MAX_SPARKLES)
+    private val sparkleLife = FloatArray(MAX_SPARKLES)
 
     // --- systems ------------------------------------------------------------
     private lateinit var save: SaveManager
@@ -83,6 +94,8 @@ class ForgeFlailGame(
         private set
     private var hud: GameHud? = null
     private var coinSound: Sound? = null
+    private var jumpSound: Sound? = null
+    private var crashSound: Sound? = null
 
     // --- run/session state (plain fields; no per-frame objects) -------------
     private var created = false
@@ -94,6 +107,7 @@ class ForgeFlailGame(
     private var playerYaw = 180f // faces the camera in the menu, -Z when running
     private var selectedCharacter = 0
     private var characterSelectOpen = false
+    private var deathTilt = 0f
 
     // ========================================================================
     // Pre-allocated callbacks — one instance each for the app's lifetime.
@@ -101,12 +115,14 @@ class ForgeFlailGame(
 
     private val runnerListener = object : RunnerSystem.Listener {
         override fun onCoinCollected(runCoins: Int) {
-            // Instant feedback: ding (slight pitch variation) + top-bar counter.
+            // Instant feedback: ding (slight pitch variation), counter, sparkles.
             coinSound?.play(0.6f, 0.95f + MathUtils.random(0.12f), 0f)
             hud?.onCoinCollected(runCoins)
+            spawnCoinBurst(runner.playerX, 1.0f, 0f)
         }
 
         override fun onPlayerDied(distanceMeters: Int, runCoins: Int) {
+            crashSound?.play(0.9f)
             if (distanceMeters > bestScore) bestScore = distanceMeters
             hud?.onRunEnded(distanceMeters, runCoins, bestScore, runner.canRevive, !coinsDoubledThisRun && runCoins > 0)
         }
@@ -164,7 +180,7 @@ class ForgeFlailGame(
             if (Math.abs(velocityX) > Math.abs(velocityY)) {
                 if (velocityX > 0f) runner.moveRight() else runner.moveLeft()
             } else if (velocityY < 0f) { // screen y points down: negative = swipe up
-                runner.jump()
+                tryJump()
             }
             return true
         }
@@ -176,7 +192,7 @@ class ForgeFlailGame(
             when (keycode) {
                 Input.Keys.LEFT, Input.Keys.A -> runner.moveLeft()
                 Input.Keys.RIGHT, Input.Keys.D -> runner.moveRight()
-                Input.Keys.SPACE, Input.Keys.UP, Input.Keys.W -> runner.jump()
+                Input.Keys.SPACE, Input.Keys.UP, Input.Keys.W -> tryJump()
                 Input.Keys.ENTER -> if (runner.state != RunnerSystem.State.RUNNING) startRun()
                 else -> return false
             }
@@ -236,7 +252,13 @@ class ForgeFlailGame(
         val barrierModel = voxelFactory.createBarrier()
         barrierInstances = kotlin.Array(RunnerSystem.BARRIER_POOL_SIZE) { ModelInstance(barrierModel) }
 
+        shadowInstance = ModelInstance(voxelFactory.createBlobShadow())
+        val sparkleModel = voxelFactory.createSparkle()
+        sparkleInstances = kotlin.Array(MAX_SPARKLES) { ModelInstance(sparkleModel) }
+
         coinSound = Gdx.audio.newSound(Gdx.files.internal("sfx/coin.wav"))
+        jumpSound = Gdx.audio.newSound(Gdx.files.internal("sfx/jump.wav"))
+        crashSound = Gdx.audio.newSound(Gdx.files.internal("sfx/crash.wav"))
 
         // -- HUD + input (UI first, then swipes, then keys)
         val hud = GameHud(this, economy, runner)
@@ -288,7 +310,17 @@ class ForgeFlailGame(
         val swing = if (running) MathUtils.sin(runPhase) * 38f else 0f
         val px = runner.playerX
         val py = runner.playerY + bob
-        val lean = if (running) -7f else 0f
+        // Cartoon posing: lean forward while running, tilt back/forward through a
+        // jump arc, and tip over comically when the run ends.
+        deathTilt = if (runner.state == RunnerSystem.State.DEAD)
+            deathTilt + (76f - deathTilt) * (6f * delta).coerceAtMost(1f)
+        else 0f
+        val lean = when {
+            runner.state == RunnerSystem.State.DEAD -> deathTilt
+            running && runner.playerY > 0f -> (runner.airVelocityY * 1.4f).coerceIn(-12f, 12f)
+            running -> -7f
+            else -> 0f
+        }
 
         val ci = selectedCharacter
         val armX = 0.33f + 0.14f * CharacterCatalog.ROSTER[ci].fat // shoulder tracks belly width
@@ -316,6 +348,22 @@ class ForgeFlailGame(
         camera.position.x = px * 0.45f
         camera.update()
 
+        // Blob shadow shrinks as he jumps — the landing cue kids read naturally.
+        val shadowScale = (1f - runner.playerY * 0.28f).coerceAtLeast(0.45f)
+        shadowInstance.transform
+            .setToTranslation(px, 0.015f, 0f)
+            .scale(shadowScale, 1f, shadowScale)
+
+        // Sparkle particle tick (fixed pool, float math only).
+        for (i in 0 until MAX_SPARKLES) {
+            if (sparkleLife[i] <= 0f) continue
+            sparkleLife[i] -= delta
+            sparkleVY[i] -= 12f * delta
+            sparkleX[i] += sparkleVX[i] * delta
+            sparkleY[i] += sparkleVY[i] * delta
+            sparkleZ[i] += sparkleVZ[i] * delta
+        }
+
         modelBatch.begin(camera)
         modelBatch.render(trackTiles[0].also { it.transform.setToTranslation(0f, 0f, trackTileZ[0]) }, environment)
         modelBatch.render(trackTiles[1].also { it.transform.setToTranslation(0f, 0f, trackTileZ[1]) }, environment)
@@ -341,6 +389,16 @@ class ForgeFlailGame(
             barrierInstances[i].transform.setToTranslation(RunnerSystem.LANE_X[barrier.lane], 0f, barrier.z)
             modelBatch.render(barrierInstances[i], environment)
         }
+        for (i in 0 until MAX_SPARKLES) {
+            if (sparkleLife[i] <= 0f) continue
+            val s = (sparkleLife[i] * 2.5f).coerceAtMost(1f)
+            sparkleInstances[i].transform
+                .setToTranslation(sparkleX[i], sparkleY[i], sparkleZ[i])
+                .rotate(Vector3.Y, coinSpinDegrees)
+                .scale(s, s, s)
+            modelBatch.render(sparkleInstances[i], environment)
+        }
+        modelBatch.render(shadowInstance, environment) // blended: batch sorts it last
         modelBatch.end()
 
         hud?.render(delta)
@@ -363,7 +421,32 @@ class ForgeFlailGame(
         modelBatch.dispose()
         voxelFactory.dispose()
         coinSound?.dispose()
+        jumpSound?.dispose()
+        crashSound?.dispose()
         hud?.dispose()
+    }
+
+    private fun tryJump() {
+        if (runner.state == RunnerSystem.State.RUNNING && runner.playerY == 0f) {
+            jumpSound?.play(0.45f)
+        }
+        runner.jump()
+    }
+
+    /** Six sparks from the pool at the pickup point; skips silently when full. */
+    private fun spawnCoinBurst(x: Float, y: Float, z: Float) {
+        var spawned = 0
+        for (i in 0 until MAX_SPARKLES) {
+            if (sparkleLife[i] > 0f) continue
+            sparkleX[i] = x
+            sparkleY[i] = y
+            sparkleZ[i] = z
+            sparkleVX[i] = MathUtils.random(-2.2f, 2.2f)
+            sparkleVY[i] = MathUtils.random(2.5f, 5f)
+            sparkleVZ[i] = MathUtils.random(-0.5f, 2f)
+            sparkleLife[i] = MathUtils.random(0.3f, 0.45f)
+            if (++spawned == SPARKS_PER_COIN) return
+        }
     }
 
     // ========================================================================
@@ -374,6 +457,7 @@ class ForgeFlailGame(
     fun startRun() {
         characterSelectOpen = false
         coinsDoubledThisRun = false
+        deathTilt = 0f
         runner.startRun()
         hud?.setRunning()
     }
@@ -381,13 +465,21 @@ class ForgeFlailGame(
     /** "Menu" button on the game-over panel. */
     fun backToMenu() {
         characterSelectOpen = false
+        clearCrashedRun()
         hud?.setReady(bestScore)
     }
 
     /** Onboarding on first launch; later via the menu's "Characters" button. */
     fun openCharacterSelect() {
         characterSelectOpen = true
+        clearCrashedRun()
         hud?.showCharacterSelect(CharacterCatalog.ROSTER[selectedCharacter])
+    }
+
+    /** Leaving the game-over screen: stand the character back up, clear debris. */
+    private fun clearCrashedRun() {
+        if (runner.state == RunnerSystem.State.DEAD) runner.resetToIdle()
+        deathTilt = 0f
     }
 
     /** Prev/next arrows on the select screen. */
@@ -435,5 +527,7 @@ class ForgeFlailGame(
         private const val COIN_BASE_Y = 0.68f
         private const val COIN_SPIN_DEG_PER_SEC = 220f
         private const val TRACK_RESET_Z = 30f
+        private const val MAX_SPARKLES = 24
+        private const val SPARKS_PER_COIN = 6
     }
 }

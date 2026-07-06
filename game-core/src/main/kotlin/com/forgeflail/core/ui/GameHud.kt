@@ -141,7 +141,7 @@ class GameHud(
         selectPanel.add(charIntroLabel).growX().colspan(3).padBottom(8f)
         selectPanel.row()
         selectPanel.add(button("  <  ") { game.cycleCharacter(-1) }).height(52f).width(64f)
-        selectPanel.add(button("Start Running!") { game.startRun() }).height(52f).growX().pad(0f, 8f, 0f, 8f)
+        selectPanel.add(button("Start Running!", GREEN) { game.startRun() }).height(52f).growX().pad(0f, 8f, 0f, 8f)
         selectPanel.add(button("  >  ") { game.cycleCharacter(1) }).height(52f).width(64f)
         selectPanel.row()
         selectPanel.add(button("Menu") { game.backToMenu() }).height(40f).colspan(3).padTop(6f)
@@ -154,8 +154,8 @@ class GameHud(
             setWrap(true)
             setAlignment(Align.center)
         }
-        reviveButton = button("Revive (watch ad)") { game.requestRevive() }
-        doubleButton = button("x2 coins (watch ad)") {
+        reviveButton = button("Revive (watch ad)", AMBER) { game.requestRevive() }
+        doubleButton = button("x2 coins (watch ad)", AMBER) {
             doubleButton.isVisible = false
             game.requestDoubleRunCoins()
         }
@@ -167,7 +167,7 @@ class GameHud(
         deadPanel.add(reviveButton).height(48f).growX().pad(2f)
         deadPanel.add(doubleButton).height(48f).growX().pad(2f)
         deadPanel.row()
-        deadPanel.add(button("Run again") { game.startRun() }).height(48f).growX().pad(2f)
+        deadPanel.add(button("Run again", GREEN) { game.startRun() }).height(48f).growX().pad(2f)
         deadPanel.add(button("Menu") { game.backToMenu() }).height(48f).growX().pad(2f)
         deadPanel.isVisible = false
         root.add(deadPanel).growX().padBottom(4f)
@@ -186,7 +186,7 @@ class GameHud(
         readyPanel.pad(10f)
         readyPanel.add(bestLabel).growX().padBottom(6f)
         readyPanel.row()
-        readyPanel.add(button("RUN!") { game.startRun() }).height(56f).growX().padBottom(8f)
+        readyPanel.add(button("RUN!", GREEN) { game.startRun() }).height(56f).growX().padBottom(8f)
         readyPanel.row()
         readyPanel.add(button("Sword Chest (${GachaSystem.CHEST_COST_GEMS} gems)") {
             game.onChestButtonClicked()
@@ -309,12 +309,16 @@ class GameHud(
         scoreLabel.setText(scoreText)
     }
 
-    private fun button(text: String, onClick: () -> Unit): TextButton {
+    /**
+     * Color language kids read at a glance: GREEN = go/play, AMBER = watch an
+     * ad (always optional), BLUE = everything else.
+     */
+    private fun button(text: String, base: Color = BLUE, onClick: () -> Unit): TextButton {
         val style = TextButton.TextButtonStyle().also {
             it.font = font
             it.fontColor = Color.WHITE
-            it.up = solid(0.16f, 0.32f, 0.55f, 0.95f)
-            it.down = solid(0.10f, 0.20f, 0.38f, 0.95f)
+            it.up = solid(base.r, base.g, base.b, 0.95f)
+            it.down = solid(base.r * 0.6f, base.g * 0.6f, base.b * 0.6f, 0.95f)
         }
         val btn = TextButton(text, style)
         btn.pad(4f, 10f, 4f, 10f)
@@ -329,5 +333,8 @@ class GameHud(
 
     private companion object {
         const val REFRESH_INTERVAL = 0.25f
+        val BLUE = Color(0.16f, 0.32f, 0.55f, 1f)
+        val GREEN = Color(0.16f, 0.52f, 0.26f, 1f)
+        val AMBER = Color(0.72f, 0.48f, 0.1f, 1f)
     }
 }

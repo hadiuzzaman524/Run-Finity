@@ -61,6 +61,9 @@ class RunnerSystem(
     val distanceMeters: Int get() = distance.toInt()
     val canRevive: Boolean get() = state == State.DEAD && !reviveUsed
 
+    /** Vertical velocity, for the renderer's cartoon air-tilt. */
+    val airVelocityY: Float get() = velocityY
+
     var listener: Listener? = null
 
     private var distance = 0f
@@ -116,6 +119,21 @@ class RunnerSystem(
         playerY = 0f
         velocityY = 0f
         state = State.RUNNING
+    }
+
+    /**
+     * Clears a finished (DEAD) run so menu/character-select screens show a
+     * clean idle scene instead of the frozen crash. Banked rewards are kept —
+     * [die] already granted them.
+     */
+    fun resetToIdle() {
+        for (i in coins.indices) coins[i].active = false
+        for (i in barriers.indices) barriers[i].active = false
+        laneIndex = 1
+        playerX = 0f
+        playerY = 0f
+        velocityY = 0f
+        state = State.READY
     }
 
     /** Frame tick; no-op unless RUNNING. Zero allocation. */
@@ -254,9 +272,10 @@ class RunnerSystem(
         const val COIN_GOLD_VALUE = 1L
         const val METERS_PER_GEM = 25
 
+        // Tuned gentle for young players: slower cap, softer ramp.
         const val START_SPEED = 8f
-        const val MAX_SPEED = 22f
-        const val SPEED_RAMP_PER_SEC = 0.18f
+        const val MAX_SPEED = 18f
+        const val SPEED_RAMP_PER_SEC = 0.15f
         const val LANE_LERP_SPEED = 11f
 
         const val JUMP_VELOCITY = 8.5f
