@@ -9,6 +9,9 @@ kotlin {
     jvmToolchain(17)
 }
 
+// Shared game assets (repo-root assets/) reach libGDX's Internal files via classpath.
+sourceSets["main"].resources.srcDir(rootProject.file("assets"))
+
 dependencies {
     implementation(project(":game-core"))
     implementation(libs.gdx.backend.lwjgl3)

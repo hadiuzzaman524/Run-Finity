@@ -5,6 +5,7 @@ import com.badlogic.gdx.Gdx
 import com.badlogic.gdx.Input
 import com.badlogic.gdx.InputAdapter
 import com.badlogic.gdx.InputMultiplexer
+import com.badlogic.gdx.audio.Sound
 import com.badlogic.gdx.graphics.GL20
 import com.badlogic.gdx.graphics.PerspectiveCamera
 import com.badlogic.gdx.graphics.g3d.Environment
@@ -79,6 +80,7 @@ class ForgeFlailGame(
     lateinit var runner: RunnerSystem
         private set
     private var hud: GameHud? = null
+    private var coinSound: Sound? = null
 
     // --- run/session state (plain fields; no per-frame objects) -------------
     private var created = false
@@ -95,7 +97,9 @@ class ForgeFlailGame(
 
     private val runnerListener = object : RunnerSystem.Listener {
         override fun onCoinCollected(runCoins: Int) {
-            // HUD polls run stats at 4 Hz; nothing allocated here.
+            // Instant feedback: ding (slight pitch variation) + top-bar counter.
+            coinSound?.play(0.6f, 0.95f + MathUtils.random(0.12f), 0f)
+            hud?.onCoinCollected(runCoins)
         }
 
         override fun onPlayerDied(distanceMeters: Int, runCoins: Int) {
@@ -227,6 +231,8 @@ class ForgeFlailGame(
         val barrierModel = voxelFactory.createBarrier()
         barrierInstances = kotlin.Array(RunnerSystem.BARRIER_POOL_SIZE) { ModelInstance(barrierModel) }
 
+        coinSound = Gdx.audio.newSound(Gdx.files.internal("sfx/coin.wav"))
+
         // -- HUD + input (UI first, then swipes, then keys)
         val hud = GameHud(this, economy, runner)
         this.hud = hud
@@ -275,10 +281,10 @@ class ForgeFlailGame(
             .translate(0.15f, 0.62f, 0f).rotate(Vector3.X, -swing)
         armLeft.transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw).rotate(Vector3.X, lean)
-            .translate(-0.4f, 1.32f, 0f).rotate(Vector3.X, -swing * 0.8f)
+            .translate(-0.47f, 1.34f, 0f).rotate(Vector3.X, -swing * 0.8f)
         armRight.transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw).rotate(Vector3.X, lean)
-            .translate(0.4f, 1.32f, 0f).rotate(Vector3.X, swing * 0.8f)
+            .translate(0.47f, 1.34f, 0f).rotate(Vector3.X, swing * 0.8f)
         // Sword strapped diagonally across the back (blade is +Y in model space).
         swordInstance.transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw)
@@ -335,6 +341,7 @@ class ForgeFlailGame(
         pause() // final save
         modelBatch.dispose()
         voxelFactory.dispose()
+        coinSound?.dispose()
         hud?.dispose()
     }
 

@@ -86,43 +86,58 @@ class VoxelModelFactory : Disposable {
     // ------------------------------------------------------------------
 
     /**
-     * Gopal Bhar-style voxel kid, split into animatable parts. This is the BODY:
-     * white dhoti, chubby bare belly/chest, gold necklace, bald head with ears,
-     * the little tiki topknot, and a simple face on the -Z side (he faces -Z).
-     * Origin at ground level under the hips. Legs/arms are separate models
+     * Gopal Bhar-cartoon-style voxel kid, split into animatable parts. This is
+     * the BODY: yellow kurta over a big round belly, red gamcha scarf around the
+     * neck with tails over the shoulders, bald crown with a black hair fringe
+     * around the sides/back, thick eyebrows, big nose, smile. He faces -Z;
+     * origin at ground level under the hips. Legs/arms are separate models
      * ([createGopalLeg]/[createGopalArm]) so the game can swing them per frame.
      */
     fun createGopalBody(): Model {
         val skin = material(GOPAL_SKIN)
-        val dhoti = material(GOPAL_DHOTI)
+        val kurta = material(GOPAL_KURTA)
+        val scarf = material(GOPAL_SCARF)
         val dark = material(GOPAL_DARK)
         modelBuilder.begin()
-        box("dhoti", dhoti, 0f, 0.72f, 0f, 0.64f, 0.3f, 0.42f)
-        box("belly", skin, 0f, 1.02f, 0f, 0.68f, 0.34f, 0.46f)
-        box("chest", skin, 0f, 1.26f, 0f, 0.56f, 0.18f, 0.38f)
-        box("necklace", material(SWORD_GOLD), 0f, 1.37f, 0f, 0.5f, 0.05f, 0.32f)
-        box("head", skin, 0f, 1.62f, 0f, 0.52f, 0.44f, 0.46f)
-        box("ear_l", skin, -0.28f, 1.62f, 0f, 0.07f, 0.15f, 0.13f)
-        box("ear_r", skin, 0.28f, 1.62f, 0f, 0.07f, 0.15f, 0.13f)
-        box("tiki", dark, 0f, 1.9f, 0.1f, 0.09f, 0.13f, 0.09f)
-        box("eye_l", dark, -0.11f, 1.67f, -0.225f, 0.08f, 0.08f, 0.03f)
-        box("eye_r", dark, 0.11f, 1.67f, -0.225f, 0.08f, 0.08f, 0.03f)
-        box("mouth", material(GOPAL_MOUTH), 0f, 1.5f, -0.225f, 0.17f, 0.045f, 0.03f)
+        // Yellow kurta: skirt over the hips, fat belly, chest.
+        box("kurta_skirt", kurta, 0f, 0.66f, 0f, 0.74f, 0.3f, 0.5f)
+        box("belly", kurta, 0f, 1.0f, 0f, 0.8f, 0.42f, 0.54f)
+        box("chest", kurta, 0f, 1.28f, 0f, 0.66f, 0.2f, 0.46f)
+        // Red gamcha: collar plus a tail over each shoulder (one falls front,
+        // one back, so it reads from both the menu and the chase camera).
+        box("scarf_collar", scarf, 0f, 1.43f, 0f, 0.56f, 0.13f, 0.44f)
+        box("scarf_front", scarf, -0.2f, 1.16f, -0.26f, 0.15f, 0.5f, 0.06f)
+        box("scarf_back", scarf, 0.2f, 1.2f, 0.26f, 0.15f, 0.42f, 0.06f)
+        // Big round head: bald on top, black fringe around sides/back.
+        box("head", skin, 0f, 1.68f, 0f, 0.56f, 0.46f, 0.5f)
+        box("hair_l", dark, -0.3f, 1.58f, 0.06f, 0.06f, 0.24f, 0.38f)
+        box("hair_r", dark, 0.3f, 1.58f, 0.06f, 0.06f, 0.24f, 0.38f)
+        box("hair_back", dark, 0f, 1.58f, 0.27f, 0.52f, 0.24f, 0.06f)
+        box("ear_l", skin, -0.31f, 1.66f, -0.06f, 0.07f, 0.15f, 0.13f)
+        box("ear_r", skin, 0.31f, 1.66f, -0.06f, 0.07f, 0.15f, 0.13f)
+        // Face on the -Z side: brows, eyes, big nose, smile.
+        box("brow_l", dark, -0.12f, 1.8f, -0.26f, 0.13f, 0.05f, 0.03f)
+        box("brow_r", dark, 0.12f, 1.8f, -0.26f, 0.13f, 0.05f, 0.03f)
+        box("eye_l", dark, -0.12f, 1.73f, -0.26f, 0.08f, 0.08f, 0.03f)
+        box("eye_r", dark, 0.12f, 1.73f, -0.26f, 0.08f, 0.08f, 0.03f)
+        box("nose", skin, 0f, 1.65f, -0.3f, 0.11f, 0.15f, 0.12f)
+        box("mouth", material(GOPAL_MOUTH), 0f, 1.55f, -0.26f, 0.2f, 0.05f, 0.03f)
         return track(modelBuilder.end())
     }
 
-    /** One bare leg with a sandal. Origin at the HIP so rotating X swings it. */
+    /** One red-trouser leg with a shoe. Origin at the HIP so rotating X swings it. */
     fun createGopalLeg(): Model {
         modelBuilder.begin()
-        box("leg", material(GOPAL_SKIN), 0f, -0.26f, 0f, 0.2f, 0.5f, 0.22f)
-        box("sandal", material(GOPAL_SANDAL), 0f, -0.53f, -0.05f, 0.21f, 0.09f, 0.32f)
+        box("leg", material(GOPAL_PANTS), 0f, -0.26f, 0f, 0.22f, 0.5f, 0.24f)
+        box("shoe", material(GOPAL_DARK), 0f, -0.53f, -0.04f, 0.23f, 0.09f, 0.32f)
         return track(modelBuilder.end())
     }
 
-    /** One bare arm. Origin at the SHOULDER so rotating X swings it. */
+    /** One yellow kurta sleeve with a bare hand. Origin at the SHOULDER. */
     fun createGopalArm(): Model {
         modelBuilder.begin()
-        box("arm", material(GOPAL_SKIN), 0f, -0.24f, 0f, 0.17f, 0.5f, 0.19f)
+        box("sleeve", material(GOPAL_KURTA), 0f, -0.18f, 0f, 0.19f, 0.38f, 0.21f)
+        box("hand", material(GOPAL_SKIN), 0f, -0.43f, 0f, 0.16f, 0.15f, 0.18f)
         return track(modelBuilder.end())
     }
 
@@ -241,11 +256,12 @@ class VoxelModelFactory : Disposable {
         private val SWORD_GOLD = Color.valueOf("F2B234")
         private val SWORD_GRIP = Color.valueOf("7B4B2A")
         private val GRASS = Color.valueOf("7BC950")
-        private val GOPAL_SKIN = Color.valueOf("E8A870")
-        private val GOPAL_DHOTI = Color.valueOf("F7F3E8")
-        private val GOPAL_DARK = Color.valueOf("2B2118")
+        private val GOPAL_SKIN = Color.valueOf("F2CB9B")
+        private val GOPAL_KURTA = Color.valueOf("F0B429")
+        private val GOPAL_PANTS = Color.valueOf("D62828")
+        private val GOPAL_SCARF = Color.valueOf("C1121F")
+        private val GOPAL_DARK = Color.valueOf("22201D")
         private val GOPAL_MOUTH = Color.valueOf("A64633")
-        private val GOPAL_SANDAL = Color.valueOf("8A5A2B")
         private val COIN_GOLD = Color.valueOf("FFD54F")
         private val COIN_GLOW = Color.valueOf("FF9F1C")
         private val BARRIER_RED = Color.valueOf("EF3E36")

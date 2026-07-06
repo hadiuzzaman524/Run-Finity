@@ -8,6 +8,7 @@ import com.badlogic.gdx.graphics.g2d.BitmapFont
 import com.badlogic.gdx.graphics.g2d.TextureRegion
 import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
+import com.badlogic.gdx.scenes.scene2d.ui.Image
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
@@ -54,8 +55,22 @@ class GameHud(
         tex
     }
 
+    /** Round gold coin icon for the top-bar counter, drawn once procedurally. */
+    private val coinIcon: Texture = Pixmap(28, 28, Pixmap.Format.RGBA8888).let { pm ->
+        pm.setColor(Color.valueOf("B8860B"))
+        pm.fillCircle(14, 14, 13)
+        pm.setColor(Color.valueOf("FFD54F"))
+        pm.fillCircle(14, 14, 11)
+        pm.setColor(Color.valueOf("FFF3C4"))
+        pm.fillCircle(11, 11, 4)
+        val tex = Texture(pm)
+        pm.dispose()
+        tex
+    }
+
     private val goldLabel: Label
     private val gemsLabel: Label
+    private val coinCountLabel: Label
     private val scoreLabel: Label
     private val toastLabel: Label
     private val readyPanel: Table
@@ -67,7 +82,8 @@ class GameHud(
 
     private val goldText = GdxStringBuilder(24)
     private val gemsText = GdxStringBuilder(24)
-    private val scoreText = GdxStringBuilder(32)
+    private val coinText = GdxStringBuilder(12)
+    private val scoreText = GdxStringBuilder(16)
     private var refreshAccumulator = 0f
 
     init {
@@ -79,15 +95,20 @@ class GameHud(
         root.pad(8f)
         stage.addActor(root)
 
-        // --- top bar: gold | score | gems ----------------------------------
+        // --- top bar: gold | [coin icon] run-coins + distance | gems ---------
         goldLabel = Label("", labelStyle)
+        coinCountLabel = Label("", Label.LabelStyle(font, Color.valueOf("FFD54F")))
         scoreLabel = Label("", Label.LabelStyle(font, Color.valueOf("FFE082")))
         gemsLabel = Label("", Label.LabelStyle(font, Color.valueOf("7FE7F5")))
+        val centerGroup = Table()
+        centerGroup.add(Image(coinIcon)).size(18f, 18f).padRight(4f)
+        centerGroup.add(coinCountLabel)
+        centerGroup.add(scoreLabel).padLeft(12f)
         val topBar = Table()
         topBar.background = panelBg
         topBar.pad(8f)
         topBar.add(goldLabel).left()
-        topBar.add(scoreLabel).expandX().center()
+        topBar.add(centerGroup).expandX().center()
         topBar.add(gemsLabel).right()
         root.add(topBar).growX().top()
         root.row()
@@ -176,11 +197,20 @@ class GameHud(
         // Note: the default BitmapFont lacks em-dash and similar glyphs — ASCII only.
         bestLabel.setText(if (bestScore > 0) "Best run: $bestScore m" else "First run - good luck!")
         scoreLabel.setText("")
+        coinCountLabel.setText("0")
     }
 
     fun setRunning() {
         readyPanel.isVisible = false
         deadPanel.isVisible = false
+        coinCountLabel.setText("0")
+    }
+
+    /** Instant top-bar update the moment a coin is grabbed (with the ding). */
+    fun onCoinCollected(runCoins: Int) {
+        coinText.setLength(0)
+        coinText.append(runCoins)
+        coinCountLabel.setText(coinText)
     }
 
     fun onRunEnded(distanceMeters: Int, runCoins: Int, bestScore: Int, canRevive: Boolean, canDouble: Boolean) {
@@ -212,6 +242,7 @@ class GameHud(
         stage.dispose()
         font.dispose()
         whitePixel.dispose()
+        coinIcon.dispose()
     }
 
     // -----------------------------------------------------------------------
@@ -227,7 +258,7 @@ class GameHud(
 
     private fun refreshScore() {
         scoreText.setLength(0)
-        scoreText.append(runner.distanceMeters).append(" m   ").append(runner.runCoins).append(" coins")
+        scoreText.append(runner.distanceMeters).append(" m")
         scoreLabel.setText(scoreText)
     }
 

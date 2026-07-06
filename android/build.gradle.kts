@@ -25,6 +25,13 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
+    // Shared game assets (sounds etc.) live in the repo-root assets/ folder.
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(rootProject.file("assets"))
+        }
+    }
 }
 
 dependencies {
