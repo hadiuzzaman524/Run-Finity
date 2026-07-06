@@ -4,7 +4,7 @@
             "outputFile": "com.forgeflail.android-mergeDebugResources-8:/values-sl/values-sl.xml",
             "map": [
                 {
-                    "source": "/Users/hadi/.gradle/caches/9.3.1/transforms/4a1ab8ef6798a3d874a5b78dc1e73912/transformed/core-1.13.1/res/values-sl/values-sl.xml",
+                    "source": "/Users/hadi/.gradle/caches/9.3.1/transforms/19224f37e915609a45a70b7eb04e0dd6/transformed/core-1.13.1/res/values-sl/values-sl.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9",
                         "startColumns": "4,4,4,4,4,4,4,4",

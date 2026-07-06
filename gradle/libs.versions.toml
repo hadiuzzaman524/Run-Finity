@@ -73,6 +73,7 @@ responsive = {module = "androidx.compose.material3:material3-window-size-class"}
 gdx-core = { group = "com.badlogicgames.gdx", name = "gdx", version.ref = "gdx" }
 gdx-backend-lwjgl3 = { group = "com.badlogicgames.gdx", name = "gdx-backend-lwjgl3", version.ref = "gdx" }
 gdx-backend-android = { group = "com.badlogicgames.gdx", name = "gdx-backend-android", version.ref = "gdx" }
+gdx-freetype = { group = "com.badlogicgames.gdx", name = "gdx-freetype", version.ref = "gdx" }
 
 
 [plugins]

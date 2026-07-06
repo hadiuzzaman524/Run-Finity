@@ -40,6 +40,9 @@ dependencies {
     natives("com.badlogicgames.gdx:gdx-platform:${libs.versions.gdx.get()}:natives-armeabi-v7a")
     natives("com.badlogicgames.gdx:gdx-platform:${libs.versions.gdx.get()}:natives-arm64-v8a")
     natives("com.badlogicgames.gdx:gdx-platform:${libs.versions.gdx.get()}:natives-x86_64")
+    natives("com.badlogicgames.gdx:gdx-freetype-platform:${libs.versions.gdx.get()}:natives-armeabi-v7a")
+    natives("com.badlogicgames.gdx:gdx-freetype-platform:${libs.versions.gdx.get()}:natives-arm64-v8a")
+    natives("com.badlogicgames.gdx:gdx-freetype-platform:${libs.versions.gdx.get()}:natives-x86_64")
 }
 
 tasks.register("copyAndroidNatives") {
