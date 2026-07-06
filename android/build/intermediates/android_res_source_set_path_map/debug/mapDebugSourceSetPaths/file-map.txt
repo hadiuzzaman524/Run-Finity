@@ -1,0 +1,7 @@
+com.forgeflail.android-pngs-0 /Volumes/Self Store/game/android/build/generated/res/pngs/debug
+com.forgeflail.android-updated_navigation_xml-1 /Volumes/Self Store/game/android/build/generated/updated_navigation_xml/debug
+com.forgeflail.android-packageDebugResources-2 /Volumes/Self Store/game/android/build/intermediates/incremental/debug/packageDebugResources/merged.dir
+com.forgeflail.android-packageDebugResources-3 /Volumes/Self Store/game/android/build/intermediates/incremental/debug/packageDebugResources/stripped.dir
+com.forgeflail.android-debug-4 /Volumes/Self Store/game/android/build/intermediates/merged_res/debug/mergeDebugResources
+com.forgeflail.android-debug-5 /Volumes/Self Store/game/android/src/debug/res
+com.forgeflail.android-main-6 /Volumes/Self Store/game/android/src/main/res

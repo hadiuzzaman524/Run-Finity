@@ -1,0 +1,82 @@
+[versions]
+agp = "9.1.0"
+coreKtx = "1.10.1"
+junit = "4.13.2"
+junitVersion = "1.1.5"
+espressoCore = "3.5.1"
+lifecycleRuntimeKtx = "2.6.1"
+activityCompose = "1.8.0"
+kotlin = "2.2.10"
+composeBom = "2024.09.00"
+#Koin for DI
+koin-annotations = "2.3.1"
+koin-bom = "4.1.1"
+ksp = "2.3.2"
+
+# Navigation
+voyager = "1.1.0-beta03"
+
+gson = "2.13.2"
+retrofit = "3.0.0"
+okhttp = "5.3.2"
+
+# libGDX (Forge & Flail game modules)
+gdx = "1.13.1"
+
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+
+# Koin Setup (DI)
+koin-bom = { module = "io.insert-koin:koin-bom", version.ref = "koin-bom" }
+koin-core = { module = "io.insert-koin:koin-core" }
+koin-android = { module = "io.insert-koin:koin-android" }
+koin-androidx-compose = { module = "io.insert-koin:koin-androidx-compose" }
+#koin-compose = { module = "io.insert-koin:koin-compose" }
+#koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel" }
+koin-ktor = { module = "io.insert-koin:koin-ktor" }
+koin-annotations = { module = "io.insert-koin:koin-annotations", version.ref = "koin-annotations" }
+koin-ksp-compiler = { module = "io.insert-koin:koin-ksp-compiler", version.ref = "koin-annotations" }
+
+# Navigation
+voyager-navigator = { module = "cafe.adriel.voyager:voyager-navigator", version.ref = "voyager" }
+voyager-screenModel = { module = "cafe.adriel.voyager:voyager-screenmodel", version.ref = "voyager" }
+voyager-bottomSheetNavigator = { module = "cafe.adriel.voyager:voyager-bottom-sheet-navigator", version.ref = "voyager" }
+voyager-tabNavigator = { module = "cafe.adriel.voyager:voyager-tab-navigator", version.ref = "voyager" }
+voyager-transitions = { module = "cafe.adriel.voyager:voyager-transitions", version.ref = "voyager" }
+voyager-koin = { module = "cafe.adriel.voyager:voyager-koin", version.ref = "voyager" }
+
+# Network
+retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+okhttp-logging-interceptor = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
+
+# Responsive
+responsive = {module = "androidx.compose.material3:material3-window-size-class"}
+
+# libGDX (Forge & Flail game modules)
+gdx-core = { group = "com.badlogicgames.gdx", name = "gdx", version.ref = "gdx" }
+gdx-backend-lwjgl3 = { group = "com.badlogicgames.gdx", name = "gdx-backend-lwjgl3", version.ref = "gdx" }
+gdx-backend-android = { group = "com.badlogicgames.gdx", name = "gdx-backend-android", version.ref = "gdx" }
+
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
