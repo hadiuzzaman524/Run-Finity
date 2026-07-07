@@ -18,6 +18,7 @@ import com.badlogic.gdx.math.MathUtils
 import com.badlogic.gdx.math.Vector3
 import com.forgeflail.core.assets.VoxelModelFactory
 import com.forgeflail.core.characters.CharacterCatalog
+import com.forgeflail.core.characters.CharacterSpec
 import com.forgeflail.core.economy.EconomyManager
 import com.forgeflail.core.gacha.Blueprint
 import com.forgeflail.core.gacha.GachaSystem
@@ -116,11 +117,36 @@ class ForgeFlailGame(
     private var characterSelectOpen = false
     private var deathTilt = 0f
 
+    // Heroes screen: the roster index on the turntable. Browsing is free;
+    // [selectedCharacter] (the equipped hero) only changes through
+    // [equipOrUnlockCharacter], so locked heroes can be admired but not run.
+    private var previewCharacter = 0
+
+    // Bitmask of unlocked roster indices (bit i = ROSTER[i]); persisted.
+    // Heroes are cosmetic-only and every cost is payable with run-earned gems.
+    private var unlockedCharacters = 0
+
+    // Character-select turntable: drags/flings spin the runner; the idle
+    // showcase spin resumes after a short hands-off pause.
+    private var selectDragCooldown = 0f
+    private var selectYawVelocity = 0f
+
+    // Camera rig eased between chase framing (menu/run) and the select
+    // close-up that keeps the runner in the top section, above the panel.
+    private var camY = CHASE_CAM_Y
+    private var camZ = CHASE_CAM_Z
+    private var lookY = CHASE_LOOK_Y
+    private var lookZ = CHASE_LOOK_Z
+
     // Level progression: skill-unlocked only (see LevelCatalog). Read by the HUD.
     var selectedLevelIndex = 0
         private set
     var unlockedLevels = 1
         private set
+
+    /** The equipped hero's spec — the Home screen greets the player with it. */
+    val equippedCharacter: CharacterSpec
+        get() = CharacterCatalog.ROSTER[selectedCharacter]
 
     // Toast strings precomputed at create(): onLevelCompleted fires mid-run
     // inside the render path, which must not build strings (hard rule 1).
@@ -208,15 +234,32 @@ class ForgeFlailGame(
         }
     }
 
-    /** Swipe input: horizontal fling = lane change, upward fling = jump. */
+    /**
+     * Swipe input: horizontal fling = lane change, upward fling = jump.
+     * On the character-select screen the same gestures become a turntable:
+     * drag to spin the runner, fling for momentum.
+     */
     private val gestureListener = object : GestureDetector.GestureAdapter() {
         override fun fling(velocityX: Float, velocityY: Float, button: Int): Boolean {
+            if (characterSelectOpen) {
+                selectYawVelocity = velocityX * FLING_YAW_FACTOR
+                selectDragCooldown = SELECT_SPIN_RESUME_SECONDS
+                return true
+            }
             if (runner.state != RunnerSystem.State.RUNNING) return false
             if (Math.abs(velocityX) > Math.abs(velocityY)) {
                 if (velocityX > 0f) runner.moveRight() else runner.moveLeft()
             } else if (velocityY < 0f) { // screen y points down: negative = swipe up
                 tryJump()
             }
+            return true
+        }
+
+        override fun pan(x: Float, y: Float, deltaX: Float, deltaY: Float): Boolean {
+            if (!characterSelectOpen) return false
+            playerYaw = (playerYaw + deltaX * DRAG_YAW_DEG_PER_PX) % 360f
+            selectYawVelocity = 0f
+            selectDragCooldown = SELECT_SPIN_RESUME_SECONDS
             return true
         }
     }
@@ -258,11 +301,18 @@ class ForgeFlailGame(
         equippedRarity = Rarity.entries[
             save.loadEquippedRarity(Rarity.COMMON.ordinal).coerceIn(0, Rarity.entries.size - 1)
         ]
+        // Free starter heroes are always open; OR with the saved mask so a
+        // roster reshuffle can never strand a player with zero heroes.
+        var starterMask = 0
+        for (i in CharacterCatalog.ROSTER.indices) {
+            if (CharacterCatalog.ROSTER[i].costGems == 0L) starterMask = starterMask or (1 shl i)
+        }
+        unlockedCharacters = save.loadUnlockedCharacters(starterMask) or starterMask
 
         // -- Camera: low chase position for stronger perspective depth.
         camera = PerspectiveCamera(64f, Gdx.graphics.width.toFloat(), Gdx.graphics.height.toFloat()).apply {
-            position.set(0f, 3.4f, 6f)
-            lookAt(0f, 1f, -8f)
+            position.set(0f, CHASE_CAM_Y, CHASE_CAM_Z)
+            lookAt(0f, CHASE_LOOK_Y, CHASE_LOOK_Z)
             near = 0.1f
             far = 85f
             update()
@@ -320,14 +370,17 @@ class ForgeFlailGame(
         this.hud = hud
         Gdx.input.inputProcessor = InputMultiplexer(hud.stage, GestureDetector(gestureListener), keyInput)
 
-        // First launch: onboarding — meet the runners and pick one.
+        // First launch: quest intro first, then the hero picker. Returning
+        // players land straight on Home.
         val savedCharacter = save.loadSelectedCharacter()
         if (savedCharacter < 0) {
             selectedCharacter = 0
-            openCharacterSelect()
+            previewCharacter = 0
+            hud.showOnboarding()
         } else {
             selectedCharacter = savedCharacter.coerceIn(0, CharacterCatalog.ROSTER.size - 1)
-            hud.setReady(bestScore)
+            previewCharacter = selectedCharacter
+            hud.setHome(bestScore)
         }
 
         created = true
@@ -355,11 +408,18 @@ class ForgeFlailGame(
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
         // Player pose: yaw eases 180° (facing camera in menus) <-> 0° (running);
-        // on the character-select screen he slowly spins as a showcase. Limbs
-        // swing with speed, whole body bobs while grounded.
+        // on the character-select screen he spins as a showcase — by touch
+        // drag/fling, or slowly on his own once hands are off. Limbs swing
+        // with speed, whole body bobs while grounded.
         val running = runner.state == RunnerSystem.State.RUNNING
         if (characterSelectOpen) {
-            playerYaw = (playerYaw + 40f * delta) % 360f
+            if (selectYawVelocity != 0f) {
+                playerYaw = (playerYaw + selectYawVelocity * delta) % 360f
+                selectYawVelocity *= (1f - SELECT_SPIN_DAMPING * delta).coerceAtLeast(0f)
+                if (Math.abs(selectYawVelocity) < SELECT_SPIN_STOP_DEG_PER_SEC) selectYawVelocity = 0f
+            }
+            if (selectDragCooldown > 0f) selectDragCooldown -= delta
+            else playerYaw = (playerYaw + SELECT_IDLE_SPIN_DEG_PER_SEC * delta) % 360f
         } else {
             val targetYaw = if (running) 0f else 180f
             playerYaw += (targetYaw - playerYaw) * (8f * delta).coerceAtMost(1f)
@@ -381,7 +441,9 @@ class ForgeFlailGame(
             else -> 0f
         }
 
-        val ci = selectedCharacter
+        // The Heroes turntable shows the browsed hero; everywhere else renders
+        // the equipped one.
+        val ci = if (characterSelectOpen) previewCharacter else selectedCharacter
         val armX = 0.33f + 0.14f * CharacterCatalog.ROSTER[ci].fat // shoulder tracks belly width
         bodies[ci].transform
             .setToTranslation(px, py, 0f).rotate(Vector3.Y, playerYaw).rotate(Vector3.X, lean)
@@ -403,8 +465,18 @@ class ForgeFlailGame(
             .translate(0.18f, 0.5f, 0.3f).rotate(Vector3.Z, 35f)
             .scale(0.55f, 0.55f, 0.55f)
 
-        // Soft x-follow keeps side lanes framed; pure translation, no view drift.
-        camera.position.x = px * 0.45f
+        // Camera rig: eases between the chase framing and the select close-up
+        // that frames the runner in the top section of the screen, clear of
+        // the menu panel below. Soft x-follow keeps side lanes framed; look-at
+        // shares the x-offset so it stays a pure translation, no view drift.
+        val camEase = (6f * delta).coerceAtMost(1f)
+        camY += ((if (characterSelectOpen) SELECT_CAM_Y else CHASE_CAM_Y) - camY) * camEase
+        camZ += ((if (characterSelectOpen) SELECT_CAM_Z else CHASE_CAM_Z) - camZ) * camEase
+        lookY += ((if (characterSelectOpen) SELECT_LOOK_Y else CHASE_LOOK_Y) - lookY) * camEase
+        lookZ += ((if (characterSelectOpen) SELECT_LOOK_Z else CHASE_LOOK_Z) - lookZ) * camEase
+        camera.position.set(px * 0.45f, camY, camZ)
+        camera.up.set(0f, 1f, 0f)
+        camera.lookAt(px * 0.45f, lookY, lookZ)
         camera.update()
 
         // Blob shadow shrinks as he jumps — the landing cue kids read naturally.
@@ -476,7 +548,7 @@ class ForgeFlailGame(
         if (!created) return
         save.persistRunner(
             economy.gold, economy.gems, bestScore, equippedRarity.ordinal, selectedCharacter,
-            unlockedLevels, selectedLevelIndex
+            unlockedCharacters, unlockedLevels, selectedLevelIndex
         )
     }
 
@@ -526,7 +598,7 @@ class ForgeFlailGame(
         hud?.setRunning()
     }
 
-    /** Level picker on the menu. Locked picks explain the goal instead. */
+    /** Level node on the map. Locked picks explain their unlock goal instead. */
     fun selectLevel(index: Int) {
         if (runner.state == RunnerSystem.State.RUNNING) return
         if (index >= unlockedLevels) {
@@ -535,7 +607,7 @@ class ForgeFlailGame(
         }
         selectedLevelIndex = index
         applyLevelTheme()
-        hud?.refreshLevelRow()
+        hud?.refreshMap()
     }
 
     /** Fog must match the level's sky or the horizon seams. Not per-frame. */
@@ -544,18 +616,40 @@ class ForgeFlailGame(
             ?.color?.set(LevelCatalog.LEVELS[selectedLevelIndex].sky)
     }
 
-    /** "Menu" button on the game-over panel. */
+    /** HOME nav tab (also the game-over panel's Home button). */
     fun backToMenu() {
         characterSelectOpen = false
         clearCrashedRun()
-        hud?.setReady(bestScore)
+        hud?.setHome(bestScore)
     }
 
-    /** Onboarding on first launch; later via the menu's "Characters" button. */
+    /** MAP nav tab: the delivery route with every level and its unlock goal. */
+    fun openMap() {
+        characterSelectOpen = false
+        clearCrashedRun()
+        hud?.showMap()
+    }
+
+    /** SHOP nav tab: sword chest (odds disclosed) + gem packs. */
+    fun openShop() {
+        characterSelectOpen = false
+        clearCrashedRun()
+        hud?.showShop()
+    }
+
+    /** "LET'S GO!" on the first-launch quest intro — straight to the hero picker. */
+    fun finishOnboarding() {
+        openCharacterSelect()
+    }
+
+    /** HEROES nav tab; also the onboarding hero pick on first launch. */
     fun openCharacterSelect() {
         characterSelectOpen = true
+        selectDragCooldown = 0f
+        selectYawVelocity = 0f
+        previewCharacter = selectedCharacter
         clearCrashedRun()
-        hud?.showCharacterSelect(CharacterCatalog.ROSTER[selectedCharacter])
+        refreshHeroesScreen()
     }
 
     /** Leaving the game-over screen: stand the character back up, clear debris. */
@@ -564,11 +658,39 @@ class ForgeFlailGame(
         deathTilt = 0f
     }
 
-    /** Prev/next arrows on the select screen. */
+    /** Prev/next arrows on the Heroes screen — browses without equipping. */
     fun cycleCharacter(direction: Int) {
         val n = CharacterCatalog.ROSTER.size
-        selectedCharacter = (selectedCharacter + direction + n) % n
-        hud?.showCharacterSelect(CharacterCatalog.ROSTER[selectedCharacter])
+        previewCharacter = (previewCharacter + direction + n) % n
+        refreshHeroesScreen()
+    }
+
+    /**
+     * The Heroes screen action button: equips the previewed hero, or unlocks
+     * it first when it still costs gems (earned free at 1 per 25 m — heroes
+     * are cosmetic, so this is expression, never progression).
+     */
+    fun equipOrUnlockCharacter() {
+        val spec = CharacterCatalog.ROSTER[previewCharacter]
+        val bit = 1 shl previewCharacter
+        if (unlockedCharacters and bit == 0) {
+            if (!economy.spendGems(spec.costGems)) {
+                hud?.toast("Need ${spec.costGems - economy.gems} more gems. Run to earn more!")
+                return
+            }
+            unlockedCharacters = unlockedCharacters or bit
+            hud?.toast("${spec.displayName} joined your team!")
+        }
+        selectedCharacter = previewCharacter
+        refreshHeroesScreen()
+    }
+
+    private fun refreshHeroesScreen() {
+        hud?.showHeroes(
+            CharacterCatalog.ROSTER[previewCharacter],
+            unlocked = unlockedCharacters and (1 shl previewCharacter) != 0,
+            equipped = previewCharacter == selectedCharacter,
+        )
     }
 
     /** "Revive (watch ad)" — once per run, ad-only by design (see RunnerSystem.revive). */
@@ -614,5 +736,25 @@ class ForgeFlailGame(
         private const val TRACK_RESET_Z = 30f
         private const val MAX_SPARKLES = 24
         private const val SPARKS_PER_COIN = 6
+
+        // Chase framing: low behind the runner, looking down the track.
+        private const val CHASE_CAM_Y = 3.4f
+        private const val CHASE_CAM_Z = 6f
+        private const val CHASE_LOOK_Y = 1f
+        private const val CHASE_LOOK_Z = -8f
+        // Select framing: near eye level aiming below the chest so the whole
+        // runner sits in the top section of the screen, above the menu panel.
+        private const val SELECT_CAM_Y = 1f
+        private const val SELECT_CAM_Z = 4.7f
+        private const val SELECT_LOOK_Y = -0.05f
+        private const val SELECT_LOOK_Z = 0f
+
+        // Select-screen turntable feel.
+        private const val SELECT_IDLE_SPIN_DEG_PER_SEC = 40f
+        private const val DRAG_YAW_DEG_PER_PX = 0.45f
+        private const val FLING_YAW_FACTOR = 0.12f // px/s of fling -> deg/s of spin
+        private const val SELECT_SPIN_DAMPING = 3f
+        private const val SELECT_SPIN_STOP_DEG_PER_SEC = 5f
+        private const val SELECT_SPIN_RESUME_SECONDS = 2.5f
     }
 }

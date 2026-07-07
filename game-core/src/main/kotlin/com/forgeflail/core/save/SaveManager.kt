@@ -39,6 +39,13 @@ class SaveManager {
     /** -1 means "never chosen" — the game shows the onboarding select screen. */
     fun loadSelectedCharacter(): Int = prefs.getInteger(KEY_CHARACTER, -1)
 
+    /**
+     * Bitmask of unlocked roster indices (bit i = CharacterCatalog.ROSTER[i]).
+     * Default covers the free starter heroes; the game ORs it with the
+     * cost-0 mask on load so a roster change can never lock everyone out.
+     */
+    fun loadUnlockedCharacters(default: Int): Int = prefs.getInteger(KEY_UNLOCKED_CHARACTERS, default)
+
     /** How many levels of LevelCatalog are playable (skill-unlocked, min 1). */
     fun loadUnlockedLevels(default: Int): Int = prefs.getInteger(KEY_UNLOCKED_LEVELS, default)
 
@@ -51,6 +58,7 @@ class SaveManager {
         bestScore: Int,
         equippedRarityOrdinal: Int,
         selectedCharacter: Int,
+        unlockedCharacters: Int,
         unlockedLevels: Int,
         selectedLevel: Int,
     ) {
@@ -59,6 +67,7 @@ class SaveManager {
         prefs.putInteger(KEY_BEST_SCORE, bestScore)
         prefs.putInteger(KEY_EQUIPPED_RARITY, equippedRarityOrdinal)
         prefs.putInteger(KEY_CHARACTER, selectedCharacter)
+        prefs.putInteger(KEY_UNLOCKED_CHARACTERS, unlockedCharacters)
         prefs.putInteger(KEY_UNLOCKED_LEVELS, unlockedLevels)
         prefs.putInteger(KEY_SELECTED_LEVEL, selectedLevel)
         prefs.flush()
@@ -83,6 +92,7 @@ class SaveManager {
         const val KEY_BEST_SCORE = "best_score_m"
         const val KEY_EQUIPPED_RARITY = "equipped_rarity"
         const val KEY_CHARACTER = "selected_character"
+        const val KEY_UNLOCKED_CHARACTERS = "unlocked_characters"
         const val KEY_UNLOCKED_LEVELS = "unlocked_levels"
         const val KEY_SELECTED_LEVEL = "selected_level"
     }

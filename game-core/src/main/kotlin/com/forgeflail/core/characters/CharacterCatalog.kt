@@ -29,6 +29,13 @@ class CharacterSpec(
     val id: String,
     val displayName: String,
     val intro: String,
+    /**
+     * Gems to unlock on the Heroes screen; 0 = starter hero, free from launch.
+     * Gems are earned free while running (RunnerSystem.METERS_PER_GEM), so
+     * every hero stays reachable without a purchase — and heroes are cosmetic
+     * only, so a locked hero never gates progression.
+     */
+    val costGems: Long,
     val skin: Color,
     val top: Color,
     val bottom: Color,
@@ -45,7 +52,7 @@ object CharacterCatalog {
 
     val ROSTER = listOf(
         CharacterSpec(
-            id = "gopal", displayName = "Gopal",
+            id = "gopal", costGems = 0L, displayName = "Gopal",
             intro = "The clever one! Quick wits, quicker feet.",
             skin = Color.valueOf("F2CB9B"), top = Color.valueOf("F0B429"),
             bottom = Color.valueOf("D62828"), shoe = Color.valueOf("22201D"),
@@ -53,7 +60,7 @@ object CharacterCatalog {
             headStyle = HeadStyle.BALD_FRINGE, fat = 1.05f, hasScarf = true,
         ),
         CharacterSpec(
-            id = "raju", displayName = "Raju",
+            id = "raju", costGems = 60L, displayName = "Raju",
             intro = "Fastest kid on the block.",
             skin = Color.valueOf("E8A870"), top = Color.valueOf("E4572E"),
             bottom = Color.valueOf("2D6CDF"), shoe = Color.valueOf("3A2E24"),
@@ -61,7 +68,7 @@ object CharacterCatalog {
             headStyle = HeadStyle.HAIR_CAP, fat = 0.85f, hasScarf = false,
         ),
         CharacterSpec(
-            id = "meena", displayName = "Meena",
+            id = "meena", costGems = 90L, displayName = "Meena",
             intro = "Never misses a coin.",
             skin = Color.valueOf("F0C08C"), top = Color.valueOf("2FA36B"),
             bottom = Color.valueOf("1B7A8C"), shoe = Color.valueOf("5C3A21"),
@@ -69,7 +76,7 @@ object CharacterCatalog {
             headStyle = HeadStyle.LONG_HAIR, fat = 0.8f, hasScarf = false,
         ),
         CharacterSpec(
-            id = "bir", displayName = "Bir Singh",
+            id = "bir", costGems = 140L, displayName = "Bir Singh",
             intro = "Brave heart, bright turban.",
             skin = Color.valueOf("C98A4B"), top = Color.valueOf("F4EFE6"),
             bottom = Color.valueOf("3B3F51"), shoe = Color.valueOf("2A2118"),
@@ -77,7 +84,7 @@ object CharacterCatalog {
             headStyle = HeadStyle.TURBAN, fat = 0.9f, hasScarf = false,
         ),
         CharacterSpec(
-            id = "voltu", displayName = "Voltu",
+            id = "voltu", costGems = 220L, displayName = "Voltu",
             intro = "Beep boop! Built to run.",
             skin = Color.valueOf("9AA5B1"), top = Color.valueOf("6B7684"),
             bottom = Color.valueOf("4B5563"), shoe = Color.valueOf("22262E"),
