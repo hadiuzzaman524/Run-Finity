@@ -108,6 +108,7 @@ class ForgeFlailGame(
     private var bestScore = 0
     private var equippedRarity = Rarity.COMMON
     private var coinsDoubledThisRun = false
+    private var coinDingCooldown = 0f
     private var coinSpinDegrees = 0f
     private var runPhase = 0f
     private var playerYaw = 180f // faces the camera in the menu, -Z when running
@@ -133,15 +134,21 @@ class ForgeFlailGame(
     private val runnerListener = object : RunnerSystem.Listener {
         override fun onCoinCollected(runCoins: Int) {
             // Instant feedback: ding (slight pitch variation), counter, sparkles.
-            coinSound?.play(0.6f, 0.95f + MathUtils.random(0.12f), 0f)
+            // The ding is rate-limited: fast coin trails otherwise spam the
+            // sound pool, a frame-hitch source on budget phones.
+            if (coinDingCooldown <= 0f) {
+                coinSound?.play(0.6f, 0.95f + MathUtils.random(0.12f), 0f)
+                coinDingCooldown = COIN_DING_MIN_INTERVAL
+            }
             hud?.onCoinCollected(runCoins)
             spawnCoinBurst(runner.playerX, 1.0f, 0f)
         }
 
         override fun onPlayerDied(distanceMeters: Int, runCoins: Int) {
             crashSound?.play(0.9f)
-            if (distanceMeters > bestScore) bestScore = distanceMeters
-            hud?.onRunEnded(distanceMeters, runCoins, bestScore, runner.canRevive, !coinsDoubledThisRun && runCoins > 0)
+            val newBest = distanceMeters > bestScore
+            if (newBest) bestScore = distanceMeters
+            hud?.onRunEnded(distanceMeters, runCoins, bestScore, newBest, runner.canRevive, !coinsDoubledThisRun && runCoins > 0)
         }
 
         override fun onLevelCompleted(level: LevelSpec) {
@@ -327,7 +334,10 @@ class ForgeFlailGame(
     }
 
     override fun render() {
-        val delta = Gdx.graphics.deltaTime
+        // Spike clamp: after a hitch (GC, app switch) the world slows for a
+        // frame instead of teleporting — no popped barriers or missed grabs.
+        val delta = Gdx.graphics.deltaTime.coerceAtMost(MAX_FRAME_DELTA)
+        if (coinDingCooldown > 0f) coinDingCooldown -= delta
         runner.update(delta)
 
         // Track tiles scroll with the world and leapfrog behind the camera.
@@ -597,6 +607,8 @@ class ForgeFlailGame(
     companion object {
         private const val TAG = "ForgeFlail"
         private const val GOAL_REACHED_TOAST = "Level goal reached - keep running for a new best!"
+        private const val MAX_FRAME_DELTA = 1f / 30f
+        private const val COIN_DING_MIN_INTERVAL = 0.08f
         private const val COIN_BASE_Y = 0.68f
         private const val COIN_SPIN_DEG_PER_SEC = 220f
         private const val TRACK_RESET_Z = 30f

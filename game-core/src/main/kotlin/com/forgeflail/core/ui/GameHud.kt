@@ -117,6 +117,15 @@ class GameHud(
     private val scoreText = GdxStringBuilder(16)
     private var refreshAccumulator = 0f
 
+    // Rolling currency counters: the labels ease toward the real balances each
+    // frame, so gold banking at run end counts up instead of snapping. -1 means
+    // "paint immediately" (first frame after boot, no roll-up from zero).
+    private var shownGold = -1L
+    private var shownGems = -1L
+
+    /** Coin-icon pop, decayed per frame — no per-pickup action allocation. */
+    private var coinPopScale = 1f
+
     init {
         val labelStyle = Label.LabelStyle(font, Color.WHITE)
         val panelBg = solid(0f, 0f, 0f, 0.45f)
@@ -266,17 +275,23 @@ class GameHud(
         toastRow.add(toastLabel).growX()
         panelRoot.add(toastRow).growX()
 
-        economy.listener = EconomyManager.BalanceListener { _, _ -> refreshCurrencies() }
-        refreshCurrencies()
         fontGenerator.dispose() // fonts own their textures; the generator is done
     }
 
-    /** One-line event feedback ("Epic sword unlocked!", "Need 12 more gems"). */
+    /**
+     * One-line event feedback ("Epic sword unlocked!", "Need 12 more gems").
+     * Fades itself out after a few seconds so stale messages never linger
+     * into the next screen or run.
+     */
     fun toast(message: String) {
         toastLabel.setText(message)
         toastLabel.clearActions()
         toastLabel.color.a = 0f
-        toastLabel.addAction(Actions.fadeIn(0.25f))
+        toastLabel.addAction(Actions.sequence(
+            Actions.fadeIn(0.25f),
+            Actions.delay(TOAST_HOLD_SECONDS),
+            Actions.fadeOut(0.6f)
+        ))
     }
 
     /** Onboarding / character-select screen; also updates on prev/next cycling. */
@@ -336,16 +351,18 @@ class GameHud(
         coinText.append(runCoins)
         coinCountLabel.setText(coinText)
         // The coin icon pops — juicy confirmation kids notice without reading.
-        coinIconImage.clearActions()
-        coinIconImage.setOrigin(coinIconImage.width / 2f, coinIconImage.height / 2f)
-        coinIconImage.setScale(1f)
-        coinIconImage.addAction(Actions.sequence(
-            Actions.scaleTo(1.5f, 1.5f, 0.07f, Interpolation.smooth),
-            Actions.scaleTo(1f, 1f, 0.15f, Interpolation.smooth)
-        ))
+        // Just a float; render() decays it. Rapid coin trails stay smooth.
+        coinPopScale = COIN_POP_SCALE
     }
 
-    fun onRunEnded(distanceMeters: Int, runCoins: Int, bestScore: Int, canRevive: Boolean, canDouble: Boolean) {
+    fun onRunEnded(
+        distanceMeters: Int,
+        runCoins: Int,
+        bestScore: Int,
+        newBest: Boolean,
+        canRevive: Boolean,
+        canDouble: Boolean,
+    ) {
         showPanel(deadPanel)
         // Collapse unavailable ad offers so no dead space pushes the panel around.
         reviveButton.isVisible = canRevive
@@ -354,7 +371,10 @@ class GameHud(
         doubleCell.height(if (canDouble) 54f else 0f)
         deadPanel.invalidateHierarchy()
         resultLabel.setText(
-            "You ran $distanceMeters m: +$runCoins gold, +${runner.runGems} gems!  Best: $bestScore m"
+            if (newBest)
+                "NEW BEST! You ran $distanceMeters m: +$runCoins gold, +${runner.runGems} gems!"
+            else
+                "You ran $distanceMeters m: +$runCoins gold, +${runner.runGems} gems!  Best: $bestScore m"
         )
     }
 
@@ -363,6 +383,12 @@ class GameHud(
         if (refreshAccumulator >= REFRESH_INTERVAL) {
             refreshAccumulator = 0f
             if (runner.state == RunnerSystem.State.RUNNING) refreshScore()
+        }
+        rollBalances(delta)
+        if (coinPopScale > 1f) {
+            coinPopScale = (coinPopScale - COIN_POP_DECAY_PER_SEC * delta).coerceAtLeast(1f)
+            coinIconImage.setOrigin(coinIconImage.width / 2f, coinIconImage.height / 2f)
+            coinIconImage.setScale(coinPopScale)
         }
         stage.act(delta)
         stage.viewport.apply(true)
@@ -426,13 +452,33 @@ class GameHud(
 
     // -----------------------------------------------------------------------
 
-    private fun refreshCurrencies() {
-        goldText.setLength(0)
-        goldText.append("Gold: ").append(economy.gold)
-        goldLabel.setText(goldText)
-        gemsText.setLength(0)
-        gemsText.append("Gems: ").append(economy.gems)
-        gemsLabel.setText(gemsText)
+    /**
+     * Eases the displayed balances toward the real ones (ease-out, min 1/frame
+     * so they always land exactly). Repaints only while a value is moving;
+     * reused StringBuilders keep this allocation-free.
+     */
+    private fun rollBalances(delta: Float) {
+        val targetGold = economy.gold
+        if (shownGold != targetGold) {
+            shownGold = if (shownGold < 0L) targetGold else step(shownGold, targetGold, delta)
+            goldText.setLength(0)
+            goldText.append("Gold: ").append(shownGold)
+            goldLabel.setText(goldText)
+        }
+        val targetGems = economy.gems
+        if (shownGems != targetGems) {
+            shownGems = if (shownGems < 0L) targetGems else step(shownGems, targetGems, delta)
+            gemsText.setLength(0)
+            gemsText.append("Gems: ").append(shownGems)
+            gemsLabel.setText(gemsText)
+        }
+    }
+
+    private fun step(shown: Long, target: Long, delta: Float): Long {
+        val diff = target - shown
+        val move = (Math.abs(diff.toDouble()) * (COUNT_SPEED * delta).coerceAtMost(1f))
+            .toLong().coerceAtLeast(1L)
+        return if (diff > 0) (shown + move).coerceAtMost(target) else (shown - move).coerceAtLeast(target)
     }
 
     private fun refreshScore() {
@@ -465,6 +511,10 @@ class GameHud(
 
     private companion object {
         const val REFRESH_INTERVAL = 0.25f
+        const val TOAST_HOLD_SECONDS = 3.5f
+        const val COIN_POP_SCALE = 1.5f
+        const val COIN_POP_DECAY_PER_SEC = 2.6f // 1.5 -> 1.0 in ~0.19 s
+        const val COUNT_SPEED = 6f // rolling counters cover ~99% in ~0.75 s
         val BLUE = Color(0.16f, 0.32f, 0.55f, 1f)
         val GREEN = Color(0.16f, 0.52f, 0.26f, 1f)
         val AMBER = Color(0.72f, 0.48f, 0.1f, 1f)
