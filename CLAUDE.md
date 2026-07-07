@@ -24,9 +24,10 @@ systems" below.)
 ```
 
 Controls: swipe left/right = change lane, swipe up = jump (desktop: arrows/AD,
-space, Enter to start). The HUD (`ui/GameHud`) has three states — READY (RUN
-button, sword-skin gacha chest with the odds disclosure, gem shop), RUNNING
-(live score bar), DEAD (revive-by-ad, x2-coins-by-ad, run again, menu).
+space, Enter to start). The HUD (`ui/GameHud`) has three states — READY (level
+picker with locked levels showing their unlock goal, RUN button, sword-skin
+gacha chest with the odds disclosure, gem shop), RUNNING (live score bar),
+DEAD (revive-by-ad, x2-coins-by-ad, run again, menu).
 
 ## Architecture (game-core, package `com.forgeflail.core`)
 
@@ -38,13 +39,20 @@ button, sword-skin gacha chest with the odds disclosure, gem shop), RUNNING
   lane-quantized collision, coin banking (delta-banked so revive can't
   double-count), one ad-revive per run. Coins/barriers are fixed pre-allocated
   pools recycled via an `active` flag; renderer binds one ModelInstance per slot.
+  All difficulty tuning comes from the `LevelSpec` passed to `startRun`.
+- `runner/LevelCatalog` — the level list; `LevelSpec` is pure data (speeds, row
+  spacing, spawn d10 odds, `LevelTheme` art set, sky/fog color, `goalMeters`).
+  Reaching the goal in one run fires `onLevelCompleted` and unlocks the next
+  level: Level 1 "Town Road" -> Level 2 "Village Road" (dirt track, huts,
+  fences, hay, log barriers; faster ramp, tighter rows). Progression is
+  skill-only — never sold or ad-gated; unlock + selection persist in saves.
 - `characters/CharacterCatalog` — the 5 selectable runners (`CharacterSpec`:
   colors, `HeadStyle`, proportions). Purely cosmetic; identical gameplay stats
   by design (no pay-to-win for the under-16 audience). First launch shows the
   HUD's onboarding select screen (`showCharacterSelect`); choice persists.
 - `assets/VoxelModelFactory` — procedural voxel Models (parametrized character
-  body/leg/arm from a CharacterSpec, coin, barrier, track tile, sword; legacy
-  anvil/counter/ground) via ModelBuilder;
+  body/leg/arm from a CharacterSpec, coin, barrier + log barrier, town + village
+  track tiles, sword; legacy anvil/counter/ground) via ModelBuilder;
   `applyRarityTraits` recolors the sword's `"blade"` material for gacha rarity
   tint + glow — the sword rides on the runner's back as the cosmetic skin.
 - `economy/EconomyManager` — gold + gems; the only mutation path for balances.
@@ -57,7 +65,8 @@ button, sword-skin gacha chest with the odds disclosure, gem shop), RUNNING
   (`DOUBLE_RUN_COINS`, `REVIVE_RUN`), `GemStoreCatalog` (all SKUs), `Debug*`
   fakes for desktop.
 - `save/SaveManager` — Preferences persistence (`persistRunner`: balances, best
-  score, equipped rarity); flushed in `pause()`, not per frame.
+  score, equipped rarity, unlocked/selected level); flushed in `pause()`, not
+  per frame.
 
 ### Parked systems (from the tycoon prototype, not wired into the game)
 

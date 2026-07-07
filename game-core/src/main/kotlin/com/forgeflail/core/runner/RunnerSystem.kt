@@ -9,6 +9,10 @@ import com.forgeflail.core.economy.EconomyManager
  * track; swipes change lane or jump; coins bank into the shared gold economy;
  * hitting a barrier ends the run (one rewarded-ad revive per run).
  *
+ * Difficulty tuning (speeds, row spacing, spawn odds) comes from the
+ * [LevelSpec] passed to [startRun]; reaching its goal distance fires
+ * [Listener.onLevelCompleted] once per run (the level-unlock hook).
+ *
  * World convention: the player stays at z=0 and the world scrolls toward +Z,
  * so entities spawn far ahead at [SPAWN_Z] and despawn once behind the camera.
  *
@@ -27,6 +31,9 @@ class RunnerSystem(
     interface Listener {
         fun onCoinCollected(runCoins: Int)
         fun onPlayerDied(distanceMeters: Int, runCoins: Int)
+
+        /** Goal distance reached (fires at most once per run, mid-run). */
+        fun onLevelCompleted(level: LevelSpec)
     }
 
     /** Reusable pooled world object; never reallocated after construction. */
@@ -41,13 +48,17 @@ class RunnerSystem(
 
     var state = State.READY
         private set
+    var level: LevelSpec = LevelCatalog.LEVELS.first()
+        private set
+    var levelCompleted = false
+        private set
     var laneIndex = 1
         private set
     var playerX = 0f
         private set
     var playerY = 0f
         private set
-    var speed = START_SPEED
+    var speed = level.startSpeed
         private set
     var runCoins = 0
         private set
@@ -73,14 +84,16 @@ class RunnerSystem(
     private var bankedMeters = 0
     private val random = RandomXS128(seed)
 
-    fun startRun() {
+    fun startRun(level: LevelSpec) {
+        this.level = level
+        levelCompleted = false
         for (i in coins.indices) coins[i].active = false
         for (i in barriers.indices) barriers[i].active = false
         laneIndex = 1
         playerX = 0f
         playerY = 0f
         velocityY = 0f
-        speed = START_SPEED
+        speed = level.startSpeed
         distance = 0f
         runCoins = 0
         bankedCoins = 0
@@ -140,8 +153,13 @@ class RunnerSystem(
     fun update(delta: Float) {
         if (state != State.RUNNING) return
 
-        speed = (speed + SPEED_RAMP_PER_SEC * delta).coerceAtMost(MAX_SPEED)
+        speed = (speed + level.speedRampPerSec * delta).coerceAtMost(level.maxSpeed)
         distance += speed * delta
+
+        if (!levelCompleted && level.goalMeters > 0 && distance >= level.goalMeters) {
+            levelCompleted = true
+            listener?.onLevelCompleted(level)
+        }
 
         // Lane change: exponential ease toward the target lane's x.
         val targetX = LANE_X[laneIndex]
@@ -193,7 +211,8 @@ class RunnerSystem(
         distanceToNextRow -= speed * delta
         if (distanceToNextRow <= 0f) {
             spawnRow()
-            distanceToNextRow = ROW_SPACING_MIN + random.nextFloat() * (ROW_SPACING_MAX - ROW_SPACING_MIN)
+            distanceToNextRow = level.rowSpacingMin +
+                random.nextFloat() * (level.rowSpacingMax - level.rowSpacingMin)
         }
     }
 
@@ -214,18 +233,22 @@ class RunnerSystem(
         listener?.onPlayerDied(distanceMeters, runCoins)
     }
 
-    /** Row patterns; a free lane is always guaranteed — no unwinnable spawns. */
+    /**
+     * Row patterns; a free lane is always guaranteed — no unwinnable spawns.
+     * Pattern odds are the level's d10 thresholds (see [LevelSpec]).
+     */
     private fun spawnRow() {
-        when (random.nextInt(10)) {
-            0, 1, 2, 3 -> { // coin trail down one lane
+        val roll = random.nextInt(10)
+        when {
+            roll <= level.coinTrailRoll -> { // coin trail down one lane
                 val lane = random.nextInt(3)
                 val count = 3 + random.nextInt(3)
                 for (k in 0 until count) spawnCoin(lane, SPAWN_Z - k * COIN_TRAIL_SPACING)
             }
-            4, 5 -> { // coin row across all lanes
+            roll <= level.coinRowRoll -> { // coin row across all lanes
                 for (lane in 0..2) spawnCoin(lane, SPAWN_Z)
             }
-            6, 7, 8 -> { // single barrier, coin marks an escape lane
+            roll <= level.singleBarrierRoll -> { // single barrier, coin marks an escape lane
                 val blocked = random.nextInt(3)
                 spawnBarrier(blocked, SPAWN_Z)
                 val free = (blocked + 1 + random.nextInt(2)) % 3
@@ -272,10 +295,7 @@ class RunnerSystem(
         const val COIN_GOLD_VALUE = 1L
         const val METERS_PER_GEM = 25
 
-        // Tuned gentle for young players: slower cap, softer ramp.
-        const val START_SPEED = 8f
-        const val MAX_SPEED = 18f
-        const val SPEED_RAMP_PER_SEC = 0.15f
+        // Speeds/row spacing live in LevelSpec — per-level difficulty is data.
         const val LANE_LERP_SPEED = 11f
 
         const val JUMP_VELOCITY = 8.5f

@@ -39,13 +39,28 @@ class SaveManager {
     /** -1 means "never chosen" — the game shows the onboarding select screen. */
     fun loadSelectedCharacter(): Int = prefs.getInteger(KEY_CHARACTER, -1)
 
+    /** How many levels of LevelCatalog are playable (skill-unlocked, min 1). */
+    fun loadUnlockedLevels(default: Int): Int = prefs.getInteger(KEY_UNLOCKED_LEVELS, default)
+
+    fun loadSelectedLevel(): Int = prefs.getInteger(KEY_SELECTED_LEVEL, 0)
+
     /** Runner-mode batch write. Call from `pause()` — not per frame. */
-    fun persistRunner(gold: Long, gems: Long, bestScore: Int, equippedRarityOrdinal: Int, selectedCharacter: Int) {
+    fun persistRunner(
+        gold: Long,
+        gems: Long,
+        bestScore: Int,
+        equippedRarityOrdinal: Int,
+        selectedCharacter: Int,
+        unlockedLevels: Int,
+        selectedLevel: Int,
+    ) {
         prefs.putLong(KEY_GOLD, gold)
         prefs.putLong(KEY_GEMS, gems)
         prefs.putInteger(KEY_BEST_SCORE, bestScore)
         prefs.putInteger(KEY_EQUIPPED_RARITY, equippedRarityOrdinal)
         prefs.putInteger(KEY_CHARACTER, selectedCharacter)
+        prefs.putInteger(KEY_UNLOCKED_LEVELS, unlockedLevels)
+        prefs.putInteger(KEY_SELECTED_LEVEL, selectedLevel)
         prefs.flush()
     }
 
@@ -68,5 +83,7 @@ class SaveManager {
         const val KEY_BEST_SCORE = "best_score_m"
         const val KEY_EQUIPPED_RARITY = "equipped_rarity"
         const val KEY_CHARACTER = "selected_character"
+        const val KEY_UNLOCKED_LEVELS = "unlocked_levels"
+        const val KEY_SELECTED_LEVEL = "selected_level"
     }
 }

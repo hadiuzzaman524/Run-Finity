@@ -13,6 +13,7 @@ import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.scenes.scene2d.actions.Actions
 import com.badlogic.gdx.scenes.scene2d.ui.Cell
+import com.badlogic.gdx.scenes.scene2d.ui.Container
 import com.badlogic.gdx.scenes.scene2d.ui.Image
 import com.badlogic.gdx.scenes.scene2d.ui.Label
 import com.badlogic.gdx.scenes.scene2d.ui.Table
@@ -30,11 +31,13 @@ import com.forgeflail.core.economy.EconomyManager
 import com.forgeflail.core.gacha.GachaSystem
 import com.forgeflail.core.gacha.Rarity
 import com.forgeflail.core.monetization.GemStoreCatalog
+import com.forgeflail.core.runner.LevelCatalog
 import com.forgeflail.core.runner.RunnerSystem
 
 /**
  * Skin-less Scene2D HUD for the runner, three states:
- *  - READY:   big RUN button, gacha chest (sword skins) with the mandatory odds
+ *  - READY:   level picker (locked levels show how to earn them), big RUN
+ *             button, gacha chest (sword skins) with the mandatory odds
  *             disclosure, gem shop.
  *  - RUNNING: just the top bar (score/coins live at 4 Hz).
  *  - DEAD:    result panel with [Revive (ad)], [x2 coins (ad)], [Run again], [Menu].
@@ -80,6 +83,14 @@ class GameHud(
         tex
     }
 
+    /**
+     * The three bottom screens (select/dead/ready) are mutually exclusive and
+     * swap through this holder. Tables lay out INVISIBLE actors too, so merely
+     * hiding panels left them stacked in the layout — tall enough on phone
+     * screens to push the top bar (gold/coins/distance) off the top edge.
+     */
+    private val panelHolder = Container<Table>()
+
     private val goldLabel: Label
     private val gemsLabel: Label
     private val coinCountLabel: Label
@@ -88,6 +99,8 @@ class GameHud(
     private val toastLabel: Label
     private val readyPanel: Table
     private val bestLabel: Label
+    private val levelButtons: kotlin.Array<TextButton>
+    private val levelStoryLabel: Label
     private val deadPanel: Table
     private val selectPanel: Table
     private val charNameLabel: Label
@@ -108,10 +121,22 @@ class GameHud(
         val labelStyle = Label.LabelStyle(font, Color.WHITE)
         val panelBg = solid(0f, 0f, 0f, 0.45f)
 
+        // Top bar and bottom panels live in separate stage-sized tables: the
+        // bar is pinned to the top and can never be displaced by panel growth.
+        val uiDensity = Gdx.graphics.density.coerceAtLeast(1f)
         val root = Table()
         root.setFillParent(true)
-        root.pad(8f)
+        // Keep the bar below any status-bar/camera-cutout inset (0 on desktop).
+        root.top().pad(8f).padTop(8f + Gdx.graphics.safeInsetTop / uiDensity)
         stage.addActor(root)
+
+        val panelRoot = Table()
+        panelRoot.setFillParent(true)
+        panelRoot.bottom().pad(8f)
+        stage.addActor(panelRoot)
+        panelHolder.fill()
+        panelRoot.add(panelHolder).growX().padBottom(4f)
+        panelRoot.row()
 
         // --- top bar: gold | [coin icon] run-coins + distance | gems ---------
         goldLabel = Label("", labelStyle)
@@ -129,11 +154,7 @@ class GameHud(
         topBar.add(goldLabel).left()
         topBar.add(centerGroup).expandX().center()
         topBar.add(gemsLabel).right()
-        root.add(topBar).growX().top()
-        root.row()
-
-        root.add().expand() // spacer: panels hug the bottom
-        root.row()
+        root.add(topBar).growX()
 
         // --- SELECT: onboarding / character choice ---------------------------
         // The chosen character spins center-stage in the 3D scene behind this.
@@ -160,9 +181,6 @@ class GameHud(
         selectPanel.add(button("  >  ") { game.cycleCharacter(1) }).height(56f).width(72f)
         selectPanel.row()
         selectPanel.add(button("Menu") { game.backToMenu() }).height(44f).colspan(3).padTop(8f)
-        selectPanel.isVisible = false
-        root.add(selectPanel).growX().padBottom(4f)
-        root.row()
 
         // --- DEAD: game-over panel ------------------------------------------
         resultLabel = Label("", labelStyle).apply {
@@ -190,9 +208,6 @@ class GameHud(
         deadPanel.row()
         deadPanel.add(button("Run again", GREEN) { game.startRun() }).height(44f).growX().pad(3f).padTop(8f)
         deadPanel.add(button("Menu") { game.backToMenu() }).height(44f).growX().pad(3f).padTop(8f)
-        deadPanel.isVisible = false
-        root.add(deadPanel).growX().padBottom(4f)
-        root.row()
 
         // --- READY: run + chest (skins) + shop -------------------------------
         bestLabel = Label("", labelStyle).apply { setAlignment(Align.center) }
@@ -206,6 +221,21 @@ class GameHud(
         readyPanel.background = panelBg
         readyPanel.pad(14f)
         readyPanel.add(bestLabel).growX().padBottom(8f)
+        readyPanel.row()
+        // Level picker: tint marks the selected level, locked ones stay dark
+        // and explain their goal on tap (progression is skill-only, never sold).
+        levelButtons = kotlin.Array(LevelCatalog.LEVELS.size) { i ->
+            button(LevelCatalog.LEVELS[i].displayName) { game.selectLevel(i) }
+        }
+        val levelRow = Table()
+        for (i in levelButtons.indices) levelRow.add(levelButtons[i]).height(46f).growX().pad(3f)
+        readyPanel.add(levelRow).growX()
+        readyPanel.row()
+        levelStoryLabel = Label("", Label.LabelStyle(smallFont, Color.valueOf("C8CFDA"))).apply {
+            setWrap(true)
+            setAlignment(Align.center)
+        }
+        readyPanel.add(levelStoryLabel).growX().padTop(4f).padBottom(8f)
         readyPanel.row()
         readyPanel.add(pulse(button("RUN!", GREEN) { game.startRun() })).height(62f).growX().padBottom(10f)
         readyPanel.row()
@@ -225,8 +255,6 @@ class GameHud(
             }).height(54f).growX().pad(3f)
         }
         readyPanel.add(shopRow).growX()
-        root.add(readyPanel).growX().padBottom(4f)
-        root.row()
 
         // --- toast: last game event ------------------------------------------
         toastLabel = Label("Swipe to steer, swipe up to jump. Grab the coins!", Label.LabelStyle(font, Color.valueOf("FFE082")))
@@ -236,7 +264,7 @@ class GameHud(
         toastRow.background = panelBg
         toastRow.pad(8f)
         toastRow.add(toastLabel).growX()
-        root.add(toastRow).growX()
+        panelRoot.add(toastRow).growX()
 
         economy.listener = EconomyManager.BalanceListener { _, _ -> refreshCurrencies() }
         refreshCurrencies()
@@ -253,9 +281,7 @@ class GameHud(
 
     /** Onboarding / character-select screen; also updates on prev/next cycling. */
     fun showCharacterSelect(spec: CharacterSpec) {
-        if (!selectPanel.isVisible) reveal(selectPanel)
-        readyPanel.isVisible = false
-        deadPanel.isVisible = false
+        showPanel(selectPanel)
         charNameLabel.setText(spec.displayName)
         charIntroLabel.setText(spec.intro)
         // Name slides in on every cycle so tapping < > feels alive.
@@ -265,19 +291,42 @@ class GameHud(
     }
 
     fun setReady(bestScore: Int) {
-        selectPanel.isVisible = false
-        if (!readyPanel.isVisible) reveal(readyPanel)
-        deadPanel.isVisible = false
+        showPanel(readyPanel)
         // Note: the default BitmapFont lacks em-dash and similar glyphs — ASCII only.
         bestLabel.setText(if (bestScore > 0) "Best run: $bestScore m" else "First run - good luck!")
         scoreLabel.setText("")
         coinCountLabel.setText("0")
+        refreshLevelRow()
+    }
+
+    /** Syncs the level picker with the game's selection/unlock state. */
+    fun refreshLevelRow() {
+        val selected = game.selectedLevelIndex
+        for (i in levelButtons.indices) {
+            val spec = LevelCatalog.LEVELS[i]
+            val unlocked = i < game.unlockedLevels
+            levelButtons[i].setText(if (unlocked) spec.displayName else "${spec.displayName}\n(locked)")
+            levelButtons[i].color.set(
+                when {
+                    i == selected -> Color.WHITE
+                    unlocked -> LEVEL_UNSELECTED
+                    else -> LEVEL_LOCKED
+                }
+            )
+        }
+        // Story beat for the selected level; append the unlock goal while the
+        // next stretch is still locked so kids always know what to chase.
+        val spec = LevelCatalog.LEVELS[selected]
+        val next = selected + 1
+        levelStoryLabel.setText(
+            if (next < LevelCatalog.LEVELS.size && next >= game.unlockedLevels)
+                "${spec.intro}  Run ${spec.goalMeters} m to reach ${LevelCatalog.LEVELS[next].displayName}!"
+            else spec.intro
+        )
     }
 
     fun setRunning() {
-        selectPanel.isVisible = false
-        readyPanel.isVisible = false
-        deadPanel.isVisible = false
+        showPanel(null) // clear view while running: top bar + toast only
         coinCountLabel.setText("0")
     }
 
@@ -297,9 +346,7 @@ class GameHud(
     }
 
     fun onRunEnded(distanceMeters: Int, runCoins: Int, bestScore: Int, canRevive: Boolean, canDouble: Boolean) {
-        selectPanel.isVisible = false
-        readyPanel.isVisible = false
-        reveal(deadPanel)
+        showPanel(deadPanel)
         // Collapse unavailable ad offers so no dead space pushes the panel around.
         reviveButton.isVisible = canRevive
         reviveCell.height(if (canRevive) 62f else 0f)
@@ -360,9 +407,18 @@ class GameHud(
         return btn
     }
 
+    /**
+     * Swaps which bottom screen occupies the holder (null = none, while
+     * running). No-op when already showing, so cycle taps don't re-fade.
+     */
+    private fun showPanel(panel: Table?) {
+        if (panelHolder.actor === panel) return
+        panelHolder.actor = panel
+        if (panel != null) reveal(panel)
+    }
+
     /** Fade a panel in when it appears instead of snapping. */
     private fun reveal(panel: Table) {
-        panel.isVisible = true
         panel.clearActions()
         panel.color.a = 0f
         panel.addAction(Actions.fadeIn(0.25f, Interpolation.smooth))
@@ -413,5 +469,10 @@ class GameHud(
         val GREEN = Color(0.16f, 0.52f, 0.26f, 1f)
         val AMBER = Color(0.72f, 0.48f, 0.1f, 1f)
         val OUTLINE = Color(0.08f, 0.08f, 0.12f, 1f)
+
+        // Actor tints over the BLUE button: full = selected, dim = available,
+        // dark = locked (kids read the disabled state without a red X).
+        val LEVEL_UNSELECTED = Color(0.55f, 0.55f, 0.55f, 1f)
+        val LEVEL_LOCKED = Color(0.32f, 0.32f, 0.32f, 1f)
     }
 }

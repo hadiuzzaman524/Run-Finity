@@ -30,6 +30,9 @@ import com.forgeflail.core.monetization.DebugBillingHandler
 import com.forgeflail.core.monetization.GemStoreCatalog
 import com.forgeflail.core.monetization.PurchaseCallback
 import com.forgeflail.core.monetization.RewardedAdCallback
+import com.forgeflail.core.runner.LevelCatalog
+import com.forgeflail.core.runner.LevelSpec
+import com.forgeflail.core.runner.LevelTheme
 import com.forgeflail.core.runner.RunnerSystem
 import com.forgeflail.core.save.SaveManager
 import com.forgeflail.core.ui.GameHud
@@ -59,7 +62,10 @@ class ForgeFlailGame(
     private lateinit var modelBatch: ModelBatch
     private lateinit var environment: Environment
     private lateinit var voxelFactory: VoxelModelFactory
-    private lateinit var trackTiles: kotlin.Array<ModelInstance>
+
+    // One track/barrier instance set per level theme; render picks by
+    // [selectedLevelIndex]. Tile z-positions are shared (same tile length).
+    private lateinit var trackTilesByLevel: kotlin.Array<kotlin.Array<ModelInstance>>
     private val trackTileZ = floatArrayOf(-10f, -10f - VoxelModelFactory.TRACK_TILE_LENGTH)
 
     // Articulated player, one part-set per roster character; the selected
@@ -71,7 +77,7 @@ class ForgeFlailGame(
     private lateinit var armsRight: kotlin.Array<ModelInstance>
     private lateinit var swordInstance: ModelInstance
     private lateinit var coinInstances: kotlin.Array<ModelInstance>
-    private lateinit var barrierInstances: kotlin.Array<ModelInstance>
+    private lateinit var barrierInstancesByLevel: kotlin.Array<kotlin.Array<ModelInstance>>
     private lateinit var shadowInstance: ModelInstance
 
     // Coin-burst sparkles: fixed pool, plain float state, zero allocation.
@@ -109,6 +115,17 @@ class ForgeFlailGame(
     private var characterSelectOpen = false
     private var deathTilt = 0f
 
+    // Level progression: skill-unlocked only (see LevelCatalog). Read by the HUD.
+    var selectedLevelIndex = 0
+        private set
+    var unlockedLevels = 1
+        private set
+
+    // Toast strings precomputed at create(): onLevelCompleted fires mid-run
+    // inside the render path, which must not build strings (hard rule 1).
+    private lateinit var levelUnlockToasts: kotlin.Array<String>
+    private lateinit var levelLockedToasts: kotlin.Array<String>
+
     // ========================================================================
     // Pre-allocated callbacks — one instance each for the app's lifetime.
     // ========================================================================
@@ -125,6 +142,17 @@ class ForgeFlailGame(
             crashSound?.play(0.9f)
             if (distanceMeters > bestScore) bestScore = distanceMeters
             hud?.onRunEnded(distanceMeters, runCoins, bestScore, runner.canRevive, !coinsDoubledThisRun && runCoins > 0)
+        }
+
+        override fun onLevelCompleted(level: LevelSpec) {
+            coinSound?.play(0.8f, 1.3f, 0f) // triumphant high ding; run continues
+            val next = selectedLevelIndex + 1
+            if (next < LevelCatalog.LEVELS.size && unlockedLevels <= next) {
+                unlockedLevels = next + 1
+                hud?.toast(levelUnlockToasts[next])
+            } else {
+                hud?.toast(GOAL_REACHED_TOAST)
+            }
         }
     }
 
@@ -211,6 +239,15 @@ class ForgeFlailGame(
         gacha = GachaSystem(economy).also { it.listener = gachaListener }
         runner = RunnerSystem(economy).also { it.listener = runnerListener }
         bestScore = save.loadBestScore()
+        unlockedLevels = save.loadUnlockedLevels(1).coerceIn(1, LevelCatalog.LEVELS.size)
+        selectedLevelIndex = save.loadSelectedLevel().coerceIn(0, unlockedLevels - 1)
+        levelUnlockToasts = kotlin.Array(LevelCatalog.LEVELS.size) {
+            "Level passed! ${LevelCatalog.LEVELS[it].displayName} is now open from the menu!"
+        }
+        levelLockedToasts = kotlin.Array(LevelCatalog.LEVELS.size) {
+            if (it == 0) "" else "Run ${LevelCatalog.LEVELS[it - 1].goalMeters} m on " +
+                "${LevelCatalog.LEVELS[it - 1].displayName} to open this!"
+        }
         equippedRarity = Rarity.entries[
             save.loadEquippedRarity(Rarity.COMMON.ordinal).coerceIn(0, Rarity.entries.size - 1)
         ]
@@ -235,8 +272,14 @@ class ForgeFlailGame(
 
         // -- World content: models built once, one instance per pool slot.
         voxelFactory = VoxelModelFactory()
-        val trackModel = voxelFactory.createTrackTile()
-        trackTiles = kotlin.Array(2) { ModelInstance(trackModel) }
+        trackTilesByLevel = kotlin.Array(LevelCatalog.LEVELS.size) { level ->
+            val trackModel = when (LevelCatalog.LEVELS[level].theme) {
+                LevelTheme.TOWN_ROAD -> voxelFactory.createTrackTile()
+                LevelTheme.VILLAGE_ROAD -> voxelFactory.createVillageTrackTile()
+            }
+            kotlin.Array(2) { ModelInstance(trackModel) }
+        }
+        applyLevelTheme()
         val roster = CharacterCatalog.ROSTER
         bodies = kotlin.Array(roster.size) { ModelInstance(voxelFactory.createCharacterBody(roster[it])) }
         val legModels = kotlin.Array(roster.size) { voxelFactory.createCharacterLeg(roster[it]) }
@@ -249,8 +292,13 @@ class ForgeFlailGame(
         voxelFactory.applyRarityTraits(swordInstance, equippedRarity)
         val coinModel = voxelFactory.createCoin()
         coinInstances = kotlin.Array(RunnerSystem.COIN_POOL_SIZE) { ModelInstance(coinModel) }
-        val barrierModel = voxelFactory.createBarrier()
-        barrierInstances = kotlin.Array(RunnerSystem.BARRIER_POOL_SIZE) { ModelInstance(barrierModel) }
+        barrierInstancesByLevel = kotlin.Array(LevelCatalog.LEVELS.size) { level ->
+            val barrierModel = when (LevelCatalog.LEVELS[level].theme) {
+                LevelTheme.TOWN_ROAD -> voxelFactory.createBarrier()
+                LevelTheme.VILLAGE_ROAD -> voxelFactory.createLogBarrier()
+            }
+            kotlin.Array(RunnerSystem.BARRIER_POOL_SIZE) { ModelInstance(barrierModel) }
+        }
 
         shadowInstance = ModelInstance(voxelFactory.createBlobShadow())
         val sparkleModel = voxelFactory.createSparkle()
@@ -292,7 +340,8 @@ class ForgeFlailGame(
         coinSpinDegrees = (coinSpinDegrees + COIN_SPIN_DEG_PER_SEC * delta) % 360f
 
         Gdx.gl.glViewport(0, 0, Gdx.graphics.backBufferWidth, Gdx.graphics.backBufferHeight)
-        Gdx.gl.glClearColor(0.45f, 0.71f, 0.95f, 1f)
+        val sky = LevelCatalog.LEVELS[selectedLevelIndex].sky
+        Gdx.gl.glClearColor(sky.r, sky.g, sky.b, 1f)
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT or GL20.GL_DEPTH_BUFFER_BIT)
 
         // Player pose: yaw eases 180° (facing camera in menus) <-> 0° (running);
@@ -364,6 +413,8 @@ class ForgeFlailGame(
             sparkleZ[i] += sparkleVZ[i] * delta
         }
 
+        val trackTiles = trackTilesByLevel[selectedLevelIndex]
+        val barrierInstances = barrierInstancesByLevel[selectedLevelIndex]
         modelBatch.begin(camera)
         modelBatch.render(trackTiles[0].also { it.transform.setToTranslation(0f, 0f, trackTileZ[0]) }, environment)
         modelBatch.render(trackTiles[1].also { it.transform.setToTranslation(0f, 0f, trackTileZ[1]) }, environment)
@@ -413,7 +464,10 @@ class ForgeFlailGame(
 
     override fun pause() {
         if (!created) return
-        save.persistRunner(economy.gold, economy.gems, bestScore, equippedRarity.ordinal, selectedCharacter)
+        save.persistRunner(
+            economy.gold, economy.gems, bestScore, equippedRarity.ordinal, selectedCharacter,
+            unlockedLevels, selectedLevelIndex
+        )
     }
 
     override fun dispose() {
@@ -458,8 +512,26 @@ class ForgeFlailGame(
         characterSelectOpen = false
         coinsDoubledThisRun = false
         deathTilt = 0f
-        runner.startRun()
+        runner.startRun(LevelCatalog.LEVELS[selectedLevelIndex])
         hud?.setRunning()
+    }
+
+    /** Level picker on the menu. Locked picks explain the goal instead. */
+    fun selectLevel(index: Int) {
+        if (runner.state == RunnerSystem.State.RUNNING) return
+        if (index >= unlockedLevels) {
+            hud?.toast(levelLockedToasts[index])
+            return
+        }
+        selectedLevelIndex = index
+        applyLevelTheme()
+        hud?.refreshLevelRow()
+    }
+
+    /** Fog must match the level's sky or the horizon seams. Not per-frame. */
+    private fun applyLevelTheme() {
+        (environment.get(ColorAttribute.Fog) as? ColorAttribute)
+            ?.color?.set(LevelCatalog.LEVELS[selectedLevelIndex].sky)
     }
 
     /** "Menu" button on the game-over panel. */
@@ -524,6 +596,7 @@ class ForgeFlailGame(
 
     companion object {
         private const val TAG = "ForgeFlail"
+        private const val GOAL_REACHED_TOAST = "Level goal reached - keep running for a new best!"
         private const val COIN_BASE_Y = 0.68f
         private const val COIN_SPIN_DEG_PER_SEC = 220f
         private const val TRACK_RESET_Z = 30f

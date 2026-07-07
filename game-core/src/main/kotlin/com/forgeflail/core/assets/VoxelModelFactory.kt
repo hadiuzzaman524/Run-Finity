@@ -306,6 +306,115 @@ class VoxelModelFactory : Disposable {
         return flushBoxes()
     }
 
+    /**
+     * Village-road jump-over hurdle: a rough log resting on two stakes. Same
+     * footprint and top edge (y < 0.8) as [createBarrier], so collision tuning
+     * ([RunnerSystem.BARRIER_CLEAR_HEIGHT]) is shared across both themes.
+     */
+    fun createLogBarrier(): Model {
+        val log = material(TREE_TRUNK)
+        val cut = material(LOG_CUT)
+        val stake = material(FENCE_WOOD)
+        box(log, 0f, 0.62f, 0f, 1.7f, 0.32f, 0.26f)
+        box(cut, -0.88f, 0.62f, 0f, 0.06f, 0.26f, 0.2f)
+        box(cut, 0.88f, 0.62f, 0f, 0.06f, 0.26f, 0.2f)
+        box(stake, -0.6f, 0.23f, 0f, 0.16f, 0.46f, 0.18f)
+        box(stake, 0.6f, 0.23f, 0f, 0.16f, 0.46f, 0.18f)
+        return flushBoxes()
+    }
+
+    /**
+     * Level-2 recyclable road segment, same [TRACK_TILE_LENGTH]: packed-dirt
+     * road with worn cart-rut dashes at the SAME lane-divider x as the town
+     * stripes (lanes must read identically), grass verges behind wooden rail
+     * fences, thatched huts, haystacks, and the shared trees/flowers/clouds.
+     */
+    fun createVillageTrackTile(): Model {
+        val len = TRACK_TILE_LENGTH
+        val dirt = material(DIRT_ROAD)
+        val rut = material(DIRT_RUT)
+        val grass = material(GRASS)
+        val fenceWood = material(FENCE_WOOD)
+        val wall = material(HUT_WALL)
+        val roof = material(HUT_ROOF)
+        val door = material(HUT_DOOR)
+        val hayMat = material(HAY)
+        val trunk = material(TREE_TRUNK)
+        val leaf = material(TREE_LEAF)
+        val leafDark = material(TREE_LEAF_DARK)
+        val cloud = material(CLOUD)
+
+        box(dirt, 0f, -0.06f, 0f, 6.8f, 0.12f, len)
+        // Dashed cart ruts as lane dividers at x = +-1.1 (lanes at -2/0/+2).
+        var z = -len / 2f + 1f
+        while (z < len / 2f) {
+            box(rut, -1.1f, 0.005f, z, 0.16f, 0.02f, 1.3f)
+            box(rut, 1.1f, 0.005f, z, 0.16f, 0.02f, 1.3f)
+            z += 3.5f
+        }
+        // Worn edges instead of painted lines.
+        box(rut, -3.25f, 0.005f, 0f, 0.14f, 0.02f, len)
+        box(rut, 3.25f, 0.005f, 0f, 0.14f, 0.02f, len)
+        box(grass, -4.6f, -0.08f, 0f, 2.4f, 0.1f, len)
+        box(grass, 4.6f, -0.08f, 0f, 2.4f, 0.1f, len)
+
+        fence(fenceWood, -3.7f, len)
+        fence(fenceWood, 3.7f, len)
+
+        // Village life on the verges, alternating sides so recycling isn't obvious.
+        hut(wall, roof, door, -5.3f, -13f, 1f)
+        hut(wall, roof, door, 5.4f, 2f, 1.15f)
+        hut(wall, roof, door, -5.4f, 9f, 0.85f)
+        hay(hayMat, 4.5f, -7f, 1f)
+        hay(hayMat, -4.4f, 0f, 0.8f)
+        hay(hayMat, 4.6f, 13f, 1.1f)
+        tree(trunk, leafDark, 5.1f, -16f, 1.1f)
+        tree(trunk, leaf, -4.9f, -4f, 0.9f)
+        tree(trunk, leaf, 5f, 8f, 0.85f)
+        tree(trunk, leafDark, -4.8f, 17f, 1.05f)
+
+        val pink = material(FLOWER_PINK)
+        val yellow = material(FLOWER_YELLOW)
+        val white = material(FLOWER_WHITE)
+        flower(yellow, -3.9f, -16f); flower(white, 4.1f, -11f); flower(pink, -4.8f, -8f)
+        flower(white, -3.8f, 3f); flower(yellow, 4.9f, 6f); flower(pink, 3.9f, -2f)
+        flower(yellow, 4.2f, 16f); flower(pink, -4.1f, 14f); flower(white, 5.0f, 18f)
+
+        box(cloud, -8.5f, 11.5f, -12f, 2.8f, 0.6f, 1.3f)
+        box(cloud, -7.9f, 11.9f, -11.7f, 1.5f, 0.5f, 1.0f)
+        box(cloud, 8f, 12.6f, 2f, 3.2f, 0.7f, 1.4f)
+        box(cloud, 7.3f, 13.1f, 2.3f, 1.7f, 0.5f, 1.1f)
+        box(cloud, 9.5f, 13.6f, 15f, 2.4f, 0.6f, 1.2f)
+        return flushBoxes()
+    }
+
+    /** Two-rail wooden fence running the full tile, posts every 5 units. */
+    private fun fence(wood: Material, x: Float, len: Float) {
+        box(wood, x, 0.44f, 0f, 0.08f, 0.09f, len)
+        box(wood, x, 0.22f, 0f, 0.08f, 0.09f, len)
+        var z = -len / 2f + 2f
+        while (z < len / 2f) {
+            box(wood, x, 0.29f, z, 0.14f, 0.58f, 0.14f)
+            z += 5f
+        }
+    }
+
+    /** Mud-walled hut with a stacked thatched roof; door faces the road. */
+    private fun hut(wall: Material, roof: Material, door: Material, x: Float, z: Float, scale: Float) {
+        box(wall, x, 0.55f * scale, z, 1.7f * scale, 1.1f * scale, 1.5f * scale)
+        val doorX = if (x < 0f) x + 0.86f * scale else x - 0.86f * scale
+        box(door, doorX, 0.38f * scale, z, 0.06f * scale, 0.76f * scale, 0.5f * scale)
+        box(roof, x, 1.24f * scale, z, 2.0f * scale, 0.3f * scale, 1.8f * scale)
+        box(roof, x, 1.5f * scale, z, 1.3f * scale, 0.26f * scale, 1.2f * scale)
+        box(roof, x, 1.7f * scale, z, 0.6f * scale, 0.22f * scale, 0.6f * scale)
+    }
+
+    /** Two-tier haystack. */
+    private fun hay(hayMat: Material, x: Float, z: Float, scale: Float) {
+        box(hayMat, x, 0.3f * scale, z, 1.0f * scale, 0.6f * scale, 1.0f * scale)
+        box(hayMat, x, 0.75f * scale, z, 0.6f * scale, 0.35f * scale, 0.6f * scale)
+    }
+
     private fun tree(trunk: Material, leaf: Material, x: Float, z: Float, scale: Float) {
         box(trunk, x, 0.45f * scale, z, 0.26f * scale, 0.9f * scale, 0.26f * scale)
         box(leaf, x, 1.4f * scale, z, 1.15f * scale, 1.1f * scale, 1.15f * scale)
@@ -388,6 +497,14 @@ class VoxelModelFactory : Disposable {
         private val TREE_LEAF = Color.valueOf("55B36A")
         private val TREE_LEAF_DARK = Color.valueOf("3E9B4F")
         private val CLOUD = Color.valueOf("FDFEFF")
+        private val DIRT_ROAD = Color.valueOf("8A6A42")
+        private val DIRT_RUT = Color.valueOf("C9AB77")
+        private val FENCE_WOOD = Color.valueOf("8A5A2E")
+        private val HUT_WALL = Color.valueOf("D9B380")
+        private val HUT_ROOF = Color.valueOf("C99B3F")
+        private val HUT_DOOR = Color.valueOf("5C3A21")
+        private val HAY = Color.valueOf("E7C452")
+        private val LOG_CUT = Color.valueOf("D9B380")
         private val FLOWER_PINK = Color.valueOf("FF7EB6")
         private val FLOWER_YELLOW = Color.valueOf("FFE066")
         private val FLOWER_WHITE = Color.valueOf("F8F9FA")
