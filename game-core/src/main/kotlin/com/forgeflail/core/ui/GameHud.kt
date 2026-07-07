@@ -9,6 +9,7 @@ import com.badlogic.gdx.graphics.g2d.NinePatch
 import com.badlogic.gdx.graphics.g2d.TextureRegion
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator
 import com.badlogic.gdx.math.Interpolation
+import com.badlogic.gdx.scenes.scene2d.Actor
 import com.badlogic.gdx.scenes.scene2d.InputEvent
 import com.badlogic.gdx.scenes.scene2d.Stage
 import com.badlogic.gdx.scenes.scene2d.actions.Actions
@@ -44,8 +45,11 @@ import com.forgeflail.core.runner.RunnerSystem
  *  - ONBOARDING: first-launch quest intro + swipe controls, then the hero picker.
  *  - HOME:       equipped hero front and center (live 3D behind), best run,
  *                next-goal chip and the big RUN! button.
- *  - MAP:        the delivery road — every level as a node with its unlock
- *                goal (progression is skill-only, never sold or ad-gated).
+ *  - MAP:        the delivery road as a winding world map — square level tiles
+ *                zig-zag up a dotted path; locked tiles carry a padlock badge
+ *                and name the level that opens them, the selected tile gets a
+ *                play badge + PLAY pill (progression is skill-only, never sold
+ *                or ad-gated).
  *  - HEROES:     3D turntable (drag/fling spins the hero), prev/next browsing,
  *                gem unlocks (gems are earned free while running).
  *  - SHOP:       sword-skin chest with the mandatory odds disclosure + gem packs.
@@ -115,6 +119,51 @@ class GameHud(
         tex
     }
 
+    /** Round padlock badge riding the corner of locked map tiles. */
+    private val lockBadgeIcon: Texture = Pixmap(28, 28, Pixmap.Format.RGBA8888).let { pm ->
+        pm.setColor(Color.valueOf("0F0826"))
+        pm.fillCircle(14, 14, 13)
+        pm.setColor(Color.valueOf("3A2470"))
+        pm.fillCircle(14, 14, 11)
+        pm.setColor(Color.valueOf("B7A9E8"))
+        pm.fillCircle(14, 10, 5)
+        pm.setColor(Color.valueOf("3A2470"))
+        pm.fillCircle(14, 10, 3)
+        pm.setColor(Color.valueOf("B7A9E8"))
+        pm.fillRectangle(8, 12, 12, 9)
+        val tex = Texture(pm)
+        pm.dispose()
+        ownedTextures.add(tex)
+        tex
+    }
+
+    /** Pink play badge riding the corner of the selected map tile. */
+    private val playBadgeIcon: Texture = Pixmap(32, 32, Pixmap.Format.RGBA8888).let { pm ->
+        pm.setColor(Color.valueOf("0F0826"))
+        pm.fillCircle(16, 16, 15)
+        pm.setColor(Color.valueOf("FF4D8D"))
+        pm.fillCircle(16, 16, 12)
+        pm.setColor(Color.WHITE)
+        pm.fillTriangle(12, 10, 12, 22, 23, 16)
+        val tex = Texture(pm)
+        pm.dispose()
+        ownedTextures.add(tex)
+        tex
+    }
+
+    /** One diagonal stretch of the dotted road between two map nodes. */
+    private val pathDotsIcon: Texture = Pixmap(96, 44, Pixmap.Format.RGBA8888).let { pm ->
+        pm.setColor(Color.valueOf("7B61FF"))
+        for (i in 0 until 5) {
+            val t = i / 4f
+            pm.fillCircle((12 + t * 72).toInt(), (36 - t * 28).toInt(), 4)
+        }
+        val tex = Texture(pm)
+        pm.dispose()
+        ownedTextures.add(tex)
+        tex
+    }
+
     /**
      * The bottom screens are mutually exclusive and swap through this holder.
      * Tables lay out INVISIBLE actors too, so merely hiding panels left them
@@ -151,7 +200,12 @@ class GameHud(
     private val mapNodes: kotlin.Array<Table>
     private val mapNodeNames: kotlin.Array<Label>
     private val mapNodeStatus: kotlin.Array<Label>
-    private val mapRunButton: TextButton
+    private val mapTileBgs: kotlin.Array<Image>
+    private val mapTileNumbers: kotlin.Array<Label>
+    private val mapTileBadges: kotlin.Array<Image>
+    private val mapTileCells: kotlin.Array<Cell<Stack>>
+    private val mapStatusHolders: kotlin.Array<Container<Actor>>
+    private val mapPlayButton: TextButton
     private val heroesPanel: Table
     private val heroNameLabel: Label
     private val heroIntroLabel: Label
@@ -299,42 +353,81 @@ class GameHud(
         homePanel.add(pulse(button("RUN!\nTap to start your journey", TEAL, TEAL_TEXT) { game.startRun() }))
             .height(74f).growX()
 
-        // --- MAP: the delivery road, final stretch on top ----------------------
+        // --- MAP: the winding delivery road, world-map style --------------------
         mapPanel = Table()
         mapPanel.background = rounded(BG_DEEP, 18, BORDER_SOFT, 2)
-        mapPanel.pad(14f)
+        mapPanel.pad(14f, 14f, 12f, 14f)
         mapPanel.add(Label("The Delivery Road", Label.LabelStyle(titleFont, GOLD)).apply {
             setAlignment(Align.center)
-        }).growX().padBottom(2f)
+        }).growX().padBottom(6f)
         mapPanel.row()
-        mapPanel.add(Label("THE GOAL: deliver swords to every stretch of the road!", mutedSmall).apply {
-            setWrap(true)
-            setAlignment(Align.center)
-        }).growX().padBottom(10f)
+        // The visualized destination, gold-framed like the prototype's goal card.
+        val goalCard = Table()
+        goalCard.background = rounded(PANEL, 14, GOLD_DARK, 3)
+        goalCard.pad(6f, 12f, 6f, 12f)
+        goalCard.add(Label(
+            "THE GOAL: ${LevelCatalog.LEVELS.last().displayName}!",
+            Label.LabelStyle(smallFont, GOLD)
+        )).left().growX()
+        goalCard.row()
+        goalCard.add(Label(
+            "Beat each stretch of the road to open the next one.",
+            Label.LabelStyle(captionFont, MUTED)
+        ).apply { setWrap(true) }).left().growX()
+        mapPanel.add(goalCard).growX().padBottom(8f)
         mapPanel.row()
+
         val levelCount = LevelCatalog.LEVELS.size
-        mapNodeNames = kotlin.Array(levelCount) { Label("", labelStyle) }
+        mapNodeNames = kotlin.Array(levelCount) { Label("", Label.LabelStyle(captionFont, GOLD)) }
         mapNodeStatus = kotlin.Array(levelCount) {
-            Label("", mutedSmall).apply { setWrap(true) }
+            Label("", Label.LabelStyle(captionFont, MUTED)).apply { setAlignment(Align.center) }
         }
+        mapTileBgs = kotlin.Array(levelCount) { Image() }
+        mapTileNumbers = kotlin.Array(levelCount) { i ->
+            Label("${i + 1}", Label.LabelStyle(titleFont, TEXT)).apply { setAlignment(Align.center) }
+        }
+        mapTileBadges = kotlin.Array(levelCount) { Image() }
+        mapStatusHolders = kotlin.Array(levelCount) { Container<Actor>() }
+        mapPlayButton = pulse(button("", TEAL, TEAL_TEXT) { game.startRun() })
+        val tileCells = ArrayList<Cell<Stack>>(levelCount)
         mapNodes = kotlin.Array(levelCount) { i ->
+            // Square tile (number + corner badge) over a name plate + status.
+            val tile = Stack()
+            tile.add(mapTileBgs[i])
+            tile.add(mapTileNumbers[i])
+            tile.add(Container(mapTileBadges[i]).align(Align.bottomRight).padRight(-5f).padBottom(-5f))
+            val plate = Table()
+            plate.background = darkChip
+            plate.pad(2f, 8f, 2f, 8f)
+            plate.add(mapNodeNames[i])
             val node = Table()
-            node.pad(10f, 14f, 10f, 14f)
-            node.add(mapNodeNames[i]).left().growX()
+            tileCells.add(node.add(tile).size(NODE_TILE_SIZE))
             node.row()
-            node.add(mapNodeStatus[i]).left().growX()
+            node.add(plate).padTop(5f)
+            node.row()
+            node.add(mapStatusHolders[i]).padTop(3f)
             node.addListener(object : ClickListener() {
                 override fun clicked(event: InputEvent?, x: Float, y: Float) = game.selectLevel(i)
             })
             node
         }
-        // Final stretch on top, first at the bottom — reads like a climb.
+        mapTileCells = tileCells.toTypedArray()
+        // Final stretch on top, first at the bottom — reads like a climb. The
+        // nodes zig-zag left/right with dotted connectors angled to match.
         for (i in levelCount - 1 downTo 0) {
-            mapPanel.add(mapNodes[i]).growX().padBottom(6f)
+            val onLeft = i % 2 == 0
+            mapPanel.add(mapNodes[i]).expandX()
+                .align(if (onLeft) Align.left else Align.right)
+                .padLeft(if (onLeft) 30f else 0f)
+                .padRight(if (onLeft) 0f else 30f)
             mapPanel.row()
+            if (i > 0) {
+                val dots = TextureRegion(pathDotsIcon)
+                if ((i - 1) % 2 != 0) dots.flip(true, false) // lower node on the right
+                mapPanel.add(Image(dots)).size(96f, 44f).pad(-4f, 0f, -4f, 0f)
+                mapPanel.row()
+            }
         }
-        mapRunButton = pulse(button("", TEAL, TEAL_TEXT) { game.startRun() })
-        mapPanel.add(mapRunButton).height(58f).growX().padTop(6f)
 
         // --- HEROES: 3D turntable behind, browse + unlock + equip --------------
         heroNameLabel = Label("", Label.LabelStyle(titleFont, GOLD)).apply { setAlignment(Align.center) }
@@ -532,25 +625,55 @@ class GameHud(
         for (i in mapNodes.indices) {
             val spec = LevelCatalog.LEVELS[i]
             val unlocked = i < game.unlockedLevels
-            mapNodes[i].background = when {
-                i == selected -> mapNodeSelectedBg
-                unlocked -> mapNodeOpenBg
-                else -> mapNodeLockedBg
-            }
-            mapNodeNames[i].setText(spec.displayName)
+            mapNodeNames[i].setText(spec.displayName.uppercase())
             mapNodeNames[i].color.set(if (unlocked) GOLD else MUTED)
-            mapNodeStatus[i].setText(
+            mapTileBgs[i].drawable = when {
+                i == selected -> mapTileSelectedBg
+                unlocked -> mapTileOpenBg
+                else -> mapTileLockedBg
+            }
+            mapTileNumbers[i].color.set(
                 when {
-                    !unlocked -> "Locked - run ${LevelCatalog.LEVELS[i - 1].goalMeters} m on " +
-                        "${LevelCatalog.LEVELS[i - 1].displayName} to open"
-                    i == selected && spec.goalMeters > 0 -> "SELECTED - goal: ${spec.goalMeters} m in one run"
-                    i == selected -> "SELECTED - endless finale, go for a record!"
-                    spec.goalMeters > 0 -> "Tap to select - goal: ${spec.goalMeters} m"
-                    else -> "Tap to select - endless finale!"
+                    i == selected -> TEAL_TEXT
+                    unlocked -> GOLD
+                    else -> MUTED
                 }
             )
+            mapTileBadges[i].drawable = when {
+                i == selected -> mapPlayBadge
+                !unlocked -> mapLockBadge
+                else -> null
+            }
+            mapTileCells[i].size(if (i == selected) NODE_TILE_SIZE_SELECTED else NODE_TILE_SIZE)
+            if (i == selected) {
+                // The active node carries the go-action, prototype-style.
+                mapPlayButton.setText("PLAY ${spec.displayName.uppercase()}")
+                mapStatusHolders[i].actor = mapPlayButton
+            } else {
+                mapStatusHolders[i].actor = mapNodeStatus[i]
+                val prev = if (i > 0) LevelCatalog.LEVELS[i - 1] else null
+                when {
+                    !unlocked && i == game.unlockedLevels -> {
+                        // The very next stretch: an encouraging goal, not a wall.
+                        mapNodeStatus[i].setText("Beat ${prev!!.displayName} - run ${prev.goalMeters} m!")
+                        mapNodeStatus[i].color.set(TEAL)
+                    }
+                    !unlocked -> {
+                        mapNodeStatus[i].setText("LOCKED - beat ${prev!!.displayName} first")
+                        mapNodeStatus[i].color.set(MUTED)
+                    }
+                    spec.goalMeters > 0 -> {
+                        mapNodeStatus[i].setText("Tap to select - goal: ${spec.goalMeters} m")
+                        mapNodeStatus[i].color.set(TEXT)
+                    }
+                    else -> {
+                        mapNodeStatus[i].setText("Tap to select - endless finale!")
+                        mapNodeStatus[i].color.set(TEXT)
+                    }
+                }
+            }
         }
-        mapRunButton.setText("RUN ${LevelCatalog.LEVELS[selected].displayName.uppercase()}!")
+        mapPanel.invalidateHierarchy()
     }
 
     /** HEROES: name/quote/unlock state for the hero on the 3D turntable. */
@@ -885,10 +1008,12 @@ class GameHud(
     private fun solid(r: Float, g: Float, b: Float, a: Float): Drawable =
         TextureRegionDrawable(TextureRegion(whitePixel)).tint(Color(r, g, b, a))
 
-    // Map node backgrounds, created once (refreshMap runs on every tap).
-    private val mapNodeSelectedBg = rounded(PANEL, 14, TEAL_DARK, 3)
-    private val mapNodeOpenBg = rounded(PANEL, 14, BORDER_SOFT, 2)
-    private val mapNodeLockedBg = rounded(BG_DEEP, 14, BORDER_FAINT, 2)
+    // Map tile faces + badges, created once (refreshMap runs on every tap).
+    private val mapTileSelectedBg = rounded(TEAL, 16, TEAL_DARK, 4)
+    private val mapTileOpenBg = rounded(PURPLE, 16, GOLD_DARK, 3)
+    private val mapTileLockedBg = rounded(PANEL, 16, BORDER_FAINT, 3)
+    private val mapLockBadge = TextureRegionDrawable(TextureRegion(lockBadgeIcon))
+    private val mapPlayBadge = TextureRegionDrawable(TextureRegion(playBadgeIcon))
 
     private companion object {
         const val REFRESH_INTERVAL = 0.25f
@@ -897,6 +1022,8 @@ class GameHud(
         const val COIN_POP_DECAY_PER_SEC = 2.6f // 1.5 -> 1.0 in ~0.19 s
         const val COUNT_SPEED = 6f // rolling counters cover ~99% in ~0.75 s
         const val GOAL_BAR_WIDTH = 170f
+        const val NODE_TILE_SIZE = 72f
+        const val NODE_TILE_SIZE_SELECTED = 84f
 
         const val NAV_HIDDEN = -1
         const val TAB_MAP = 0
