@@ -887,7 +887,7 @@ class GameHud(
         }
     }
 
-    /** PAUSED: centered freeze card; score chip stays up so nothing feels lost. */
+    /** PAUSED: bottom-docked freeze card (runner stays in view above it); score chip stays up so nothing feels lost. */
     fun showPaused() {
         showPanel(pausePanel)
         setNav(NAV_HIDDEN)
@@ -1064,9 +1064,10 @@ class GameHud(
     private fun showPanel(panel: Table?) {
         if (panelHolder.actor === panel) return
         panelHolder.actor = panel
-        // Map + paused cards float centered in the free space between the top
-        // bar and the bottom edge; every other screen docks at the bottom.
-        if (panel === mapPanel || panel === pausePanel) panelHolder.center() else panelHolder.bottom()
+        // The map card floats centered in the free space between the top bar
+        // and the bottom edge; every other screen docks at the bottom — the
+        // paused card included, so the frozen runner stays visible above it.
+        if (panel === mapPanel) panelHolder.center() else panelHolder.bottom()
         // The pause chip only exists on the live run screen (panel == null).
         pauseChip.isVisible = panel == null
         pauseChipCell.size(if (panel == null) 44f else 0f, 44f)

@@ -110,6 +110,10 @@ class ForgeFlailGame(
     private var coinSound: Sound? = null
     private var jumpSound: Sound? = null
     private var crashSound: Sound? = null
+    // One footfall sample (assets/sfx/footstep.wav) cut straight out of a real
+    // walking recording. Triggered per foot strike in render() — synced to
+    // the leg-swing animation via stepPhase — rather than a free-running
+    // loop, so the sound always lands on the visual footfall.
     private var footstepSound: Sound? = null
 
     // Sound toggles (settings screen). Read by the HUD, persisted on toggle.
@@ -128,10 +132,11 @@ class ForgeFlailGame(
     private var coinDingCooldown = 0f
     private var coinSpinDegrees = 0f
     private var runPhase = 0f
-    private var stepPhase = 0f // footfall clock: one step sound every PI radians
+    private var stepPhase = 0f // footfall clock: one step sound every PI radians of runPhase
     private var playerYaw = 180f // faces the camera in the menu, -Z when running
     private var selectedCharacter = 0
     private var characterSelectOpen = false
+    private var homeOpen = false // Home tab shares the select camera close-up
     private var deathTilt = 0f
     private var boostTrailCooldown = 0f
     private var auraPhase = 0f // dedicated pulse clock (runPhase freezes mid-air)
@@ -430,6 +435,7 @@ class ForgeFlailGame(
         } else {
             selectedCharacter = savedCharacter.coerceIn(0, CharacterCatalog.ROSTER.size - 1)
             previewCharacter = selectedCharacter
+            homeOpen = true
             hud.setHome(bestScore)
         }
 
@@ -477,13 +483,13 @@ class ForgeFlailGame(
         }
         if (running && runner.playerY == 0f) {
             runPhase += delta * runner.scrollSpeed * 1.4f
-            // Footsteps ride the same clock as the leg swing: one foot strikes
-            // every half swing cycle (PI). Slight pitch spread keeps the
-            // left/right patter from sounding like a metronome.
+            // Footsteps ride the exact same clock as the leg swing: one foot
+            // strikes every half swing cycle (PI), so the sample always lands
+            // on the visual footfall instead of drifting against it.
             stepPhase += delta * runner.scrollSpeed * 1.4f
             if (stepPhase >= MathUtils.PI) {
                 stepPhase -= MathUtils.PI
-                if (footstepSoundsOn) footstepSound?.play(0.5f, 0.85f + MathUtils.random(0.3f), 0f)
+                if (footstepSoundsOn) footstepSound?.play(0.55f, 0.95f + MathUtils.random(0.1f), 0f)
             }
         } else {
             stepPhase = 0f // airborne/idle: the next landing starts a fresh cycle
@@ -548,13 +554,18 @@ class ForgeFlailGame(
 
         // Camera rig: eases between the chase framing and the select close-up
         // that frames the runner in the top section of the screen, clear of
-        // the menu panel below. Soft x-follow keeps side lanes framed; look-at
-        // shares the x-offset so it stays a pure translation, no view drift.
+        // the menu panel below. The paused card shares the close-up so the
+        // frozen runner stays fully visible above it, and Home greets the
+        // player with the same full-body hero framing. Soft x-follow keeps
+        // side lanes framed; look-at shares the x-offset so it stays a pure
+        // translation, no view drift.
+        val closeUp = characterSelectOpen || homeOpen ||
+            runner.state == RunnerSystem.State.PAUSED
         val camEase = (6f * delta).coerceAtMost(1f)
-        camY += ((if (characterSelectOpen) SELECT_CAM_Y else CHASE_CAM_Y) - camY) * camEase
-        camZ += ((if (characterSelectOpen) SELECT_CAM_Z else CHASE_CAM_Z) - camZ) * camEase
-        lookY += ((if (characterSelectOpen) SELECT_LOOK_Y else CHASE_LOOK_Y) - lookY) * camEase
-        lookZ += ((if (characterSelectOpen) SELECT_LOOK_Z else CHASE_LOOK_Z) - lookZ) * camEase
+        camY += ((if (closeUp) SELECT_CAM_Y else CHASE_CAM_Y) - camY) * camEase
+        camZ += ((if (closeUp) SELECT_CAM_Z else CHASE_CAM_Z) - camZ) * camEase
+        lookY += ((if (closeUp) SELECT_LOOK_Y else CHASE_LOOK_Y) - lookY) * camEase
+        lookZ += ((if (closeUp) SELECT_LOOK_Z else CHASE_LOOK_Z) - lookZ) * camEase
         camera.position.set(px * 0.45f, camY, camZ)
         camera.up.set(0f, 1f, 0f)
         camera.lookAt(px * 0.45f, lookY, lookZ)
@@ -724,6 +735,7 @@ class ForgeFlailGame(
     /** "RUN!" / "Run again" buttons. */
     fun startRun() {
         characterSelectOpen = false
+        homeOpen = false
         coinsDoubledThisRun = false
         deathTilt = 0f
         runner.startRun(LevelCatalog.LEVELS[selectedLevelIndex])
@@ -765,6 +777,7 @@ class ForgeFlailGame(
     /** HOME nav tab (also the game-over panel's Home button). */
     fun backToMenu() {
         characterSelectOpen = false
+        homeOpen = true
         clearCrashedRun()
         hud?.setHome(bestScore)
     }
@@ -772,6 +785,7 @@ class ForgeFlailGame(
     /** MAP nav tab: the delivery route with every level and its unlock goal. */
     fun openMap() {
         characterSelectOpen = false
+        homeOpen = false
         clearCrashedRun()
         hud?.showMap()
     }
@@ -779,6 +793,7 @@ class ForgeFlailGame(
     /** SHOP nav tab: sword chest (odds disclosed) + gem packs. */
     fun openShop() {
         characterSelectOpen = false
+        homeOpen = false
         clearCrashedRun()
         hud?.showShop()
     }
@@ -786,6 +801,7 @@ class ForgeFlailGame(
     /** Gear icon in the top bar: sound toggles (coin/footstep/action). */
     fun openSettings() {
         characterSelectOpen = false
+        homeOpen = false
         clearCrashedRun()
         hud?.showSettings()
     }
@@ -817,6 +833,7 @@ class ForgeFlailGame(
     /** HEROES nav tab; also the onboarding hero pick on first launch. */
     fun openCharacterSelect() {
         characterSelectOpen = true
+        homeOpen = false
         selectDragCooldown = 0f
         selectYawVelocity = 0f
         previewCharacter = selectedCharacter

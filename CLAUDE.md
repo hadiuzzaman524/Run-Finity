@@ -30,8 +30,10 @@ sword-skin gacha chest with the odds disclosure, gem shop), RUNNING (live score
 bar + pause chip), PAUSED (resume / quit-to-home card; also entered
 automatically when the app backgrounds mid-run), DEAD (revive-by-ad,
 x2-coins-by-ad, run again, menu). Every panel's height is capped
-(`updatePanelCap`) so no card can cover the currency pills; the map/paused
-cards center on screen and tall content scrolls inside its panel.
+(`updatePanelCap`) so no card can cover the currency pills; the map card
+centers on screen, every other card (paused included, so the runner stays
+visible above it) docks at the bottom, and tall content scrolls inside its
+panel.
 
 ## Architecture (game-core, package `com.forgeflail.core`)
 
