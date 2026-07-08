@@ -213,6 +213,21 @@ class VoxelModelFactory : Disposable {
         return track(modelBuilder.end())
     }
 
+    /**
+     * Power gem — the rare boost pickup: a hot-pink voxel gem (stacked boxes
+     * narrowing top and bottom) around a bright core, strongly emissive so it
+     * reads as "special" from the full spawn distance. Origin at its base.
+     */
+    fun createPowerGem(): Model {
+        val shell = material(POWER_PINK, POWER_PINK, emissiveScale = 0.65f)
+        val core = material(Color.WHITE, Color.WHITE, emissiveScale = 0.55f)
+        box(shell, 0f, 0.12f, 0f, 0.34f, 0.24f, 0.34f)
+        box(shell, 0f, 0.35f, 0f, 0.6f, 0.22f, 0.6f)
+        box(shell, 0f, 0.57f, 0f, 0.34f, 0.22f, 0.34f)
+        box(core, 0f, 0.35f, 0f, 0.2f, 0.7f, 0.2f)
+        return flushBoxes()
+    }
+
     /** Tiny emissive cube for coin-burst sparkle particles. */
     fun createSparkle(): Model {
         box(material(COIN_GOLD, COIN_GLOW, emissiveScale = 0.8f), 0f, 0f, 0f, 0.14f, 0.14f, 0.14f)
@@ -388,6 +403,120 @@ class VoxelModelFactory : Disposable {
         return flushBoxes()
     }
 
+    /**
+     * Mountain-pass jump-over hurdle: a fallen boulder cluster with a snow cap.
+     * Same footprint and top edge (y < 0.8) as [createBarrier], so collision
+     * tuning ([RunnerSystem.BARRIER_CLEAR_HEIGHT]) is shared across all themes.
+     */
+    fun createRockBarrier(): Model {
+        val rock = material(CLIFF_ROCK)
+        val dark = material(CLIFF_ROCK_DARK)
+        val snow = material(SNOW)
+        box(rock, 0f, 0.34f, 0f, 0.95f, 0.68f, 0.6f)
+        box(dark, -0.62f, 0.24f, 0.05f, 0.5f, 0.48f, 0.45f)
+        box(dark, 0.6f, 0.2f, -0.02f, 0.45f, 0.4f, 0.4f)
+        box(snow, 0f, 0.72f, 0f, 0.6f, 0.12f, 0.4f)
+        return flushBoxes()
+    }
+
+    /**
+     * Level-3 recyclable road segment, same [TRACK_TILE_LENGTH]: a stone road
+     * cut into the mountainside. Dashed pale lane markers at the SAME divider
+     * x as the other themes (lanes must read identically), snowy verges, a
+     * cliff wall closing off the left side, guard stones along the right edge
+     * with pines and snow-capped peaks falling away beyond — the winding-pass
+     * postcard, faded by fog with distance.
+     */
+    fun createMountainTrackTile(): Model {
+        val len = TRACK_TILE_LENGTH
+        val road = material(STONE_ROAD)
+        val marker = material(STONE_MARKER)
+        val snow = material(SNOW)
+        val rock = material(CLIFF_ROCK)
+        val rockDark = material(CLIFF_ROCK_DARK)
+        val trunk = material(TREE_TRUNK)
+        val pineLeaf = material(PINE_LEAF)
+        val pineDark = material(PINE_LEAF_DARK)
+        val cloud = material(CLOUD)
+
+        box(road, 0f, -0.06f, 0f, 6.8f, 0.12f, len)
+        // Dashed lane markers at x = +-1.1 (lanes at -2/0/+2).
+        var z = -len / 2f + 1f
+        while (z < len / 2f) {
+            box(marker, -1.1f, 0.005f, z, 0.12f, 0.02f, 1.4f)
+            box(marker, 1.1f, 0.005f, z, 0.12f, 0.02f, 1.4f)
+            z += 3.5f
+        }
+        // Solid edge lines.
+        box(marker, -3.25f, 0.005f, 0f, 0.12f, 0.02f, len)
+        box(marker, 3.25f, 0.005f, 0f, 0.12f, 0.02f, len)
+        box(snow, -4.6f, -0.08f, 0f, 2.4f, 0.1f, len)
+        box(snow, 4.6f, -0.08f, 0f, 2.4f, 0.1f, len)
+
+        // Cliff wall hugging the left edge: overlapping slabs of varied height
+        // so the tile seam never reads as a repeat.
+        cliffSlab(rock, rockDark, snow, -5.6f, -14f, 1.25f)
+        cliffSlab(rock, rockDark, snow, -5.4f, -6f, 0.95f)
+        cliffSlab(rock, rockDark, snow, -5.7f, 2f, 1.4f)
+        cliffSlab(rock, rockDark, snow, -5.4f, 10f, 1.05f)
+        cliffSlab(rock, rockDark, snow, -5.6f, 17f, 1.2f)
+
+        // Guard stones along the outer (right) edge, posts every 4 units.
+        var gz = -len / 2f + 2f
+        while (gz < len / 2f) {
+            box(rock, 3.7f, 0.26f, gz, 0.3f, 0.52f, 0.3f)
+            gz += 4f
+        }
+
+        // The drop-off side: pines below the road line, peaks in the distance.
+        pine(trunk, pineDark, 4.9f, -11f, 1.1f)
+        pine(trunk, pineLeaf, 5.2f, -3f, 0.85f)
+        pine(trunk, pineLeaf, 4.8f, 5f, 1f)
+        pine(trunk, pineDark, 5.1f, 14f, 0.9f)
+        peak(rock, snow, 10.5f, -16f, 1.7f)
+        peak(rock, snow, 12f, -2f, 2.1f)
+        peak(rock, snow, 9.5f, 12f, 1.5f)
+        peak(rock, snow, -11f, -8f, 1.9f)
+        peak(rock, snow, -10f, 8f, 1.6f)
+
+        // Snow drifts dotted on the verges (this pass's "flowers").
+        box(snow, -3.9f, 0.06f, -17f, 0.5f, 0.14f, 0.4f)
+        box(snow, 4.1f, 0.06f, -12f, 0.45f, 0.12f, 0.5f)
+        box(snow, -4.2f, 0.06f, -5f, 0.55f, 0.14f, 0.42f)
+        box(snow, 3.9f, 0.06f, 1f, 0.5f, 0.12f, 0.45f)
+        box(snow, 4.3f, 0.06f, 9f, 0.42f, 0.14f, 0.4f)
+        box(snow, -3.8f, 0.06f, 15f, 0.5f, 0.12f, 0.5f)
+
+        box(cloud, -8.5f, 11.5f, -12f, 2.8f, 0.6f, 1.3f)
+        box(cloud, -7.9f, 11.9f, -11.7f, 1.5f, 0.5f, 1.0f)
+        box(cloud, 8f, 12.6f, 2f, 3.2f, 0.7f, 1.4f)
+        box(cloud, 7.3f, 13.1f, 2.3f, 1.7f, 0.5f, 1.1f)
+        box(cloud, 9.5f, 13.6f, 15f, 2.4f, 0.6f, 1.2f)
+        return flushBoxes()
+    }
+
+    /** One cliff-wall segment: rock slab, darker ledge, snow on the crown. */
+    private fun cliffSlab(rock: Material, dark: Material, snow: Material, x: Float, z: Float, scale: Float) {
+        box(rock, x, 1.1f * scale, z, 2.4f, 2.2f * scale, 6.5f)
+        box(dark, x - 0.35f, 1.9f * scale, z + 1.2f, 1.6f, 0.6f * scale, 3.5f)
+        box(snow, x, 2.28f * scale, z, 2.0f, 0.16f * scale, 5.8f)
+    }
+
+    /** Three-tier conifer, narrower and darker than the lowland [tree]. */
+    private fun pine(trunk: Material, leaf: Material, x: Float, z: Float, scale: Float) {
+        box(trunk, x, 0.35f * scale, z, 0.22f * scale, 0.7f * scale, 0.22f * scale)
+        box(leaf, x, 1.0f * scale, z, 1.1f * scale, 0.7f * scale, 1.1f * scale)
+        box(leaf, x, 1.6f * scale, z, 0.75f * scale, 0.6f * scale, 0.75f * scale)
+        box(leaf, x, 2.15f * scale, z, 0.4f * scale, 0.5f * scale, 0.4f * scale)
+    }
+
+    /** Distant snow-capped summit: two rock tiers under a snow crown. */
+    private fun peak(rock: Material, snow: Material, x: Float, z: Float, scale: Float) {
+        box(rock, x, 1.6f * scale, z, 3.4f * scale, 3.2f * scale, 3.0f * scale)
+        box(rock, x, 3.4f * scale, z, 2.2f * scale, 1.6f * scale, 2.0f * scale)
+        box(snow, x, 4.4f * scale, z, 1.3f * scale, 0.9f * scale, 1.2f * scale)
+    }
+
     /** Two-rail wooden fence running the full tile, posts every 5 units. */
     private fun fence(wood: Material, x: Float, len: Float) {
         box(wood, x, 0.44f, 0f, 0.08f, 0.09f, len)
@@ -505,6 +634,14 @@ class VoxelModelFactory : Disposable {
         private val HUT_DOOR = Color.valueOf("5C3A21")
         private val HAY = Color.valueOf("E7C452")
         private val LOG_CUT = Color.valueOf("D9B380")
+        private val STONE_ROAD = Color.valueOf("7D7469")
+        private val STONE_MARKER = Color.valueOf("CFC9BD")
+        private val SNOW = Color.valueOf("EFF6FB")
+        private val CLIFF_ROCK = Color.valueOf("8A7563")
+        private val CLIFF_ROCK_DARK = Color.valueOf("6B5A4C")
+        private val PINE_LEAF = Color.valueOf("2E7D46")
+        private val PINE_LEAF_DARK = Color.valueOf("25683B")
+        private val POWER_PINK = Color.valueOf("FF4D8D")
         private val FLOWER_PINK = Color.valueOf("FF7EB6")
         private val FLOWER_YELLOW = Color.valueOf("FFE066")
         private val FLOWER_WHITE = Color.valueOf("F8F9FA")

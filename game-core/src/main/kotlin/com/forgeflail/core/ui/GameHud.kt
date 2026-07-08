@@ -17,6 +17,7 @@ import com.badlogic.gdx.scenes.scene2d.ui.Cell
 import com.badlogic.gdx.scenes.scene2d.ui.Container
 import com.badlogic.gdx.scenes.scene2d.ui.Image
 import com.badlogic.gdx.scenes.scene2d.ui.Label
+import com.badlogic.gdx.scenes.scene2d.ui.ScrollPane
 import com.badlogic.gdx.scenes.scene2d.ui.Stack
 import com.badlogic.gdx.scenes.scene2d.ui.Table
 import com.badlogic.gdx.scenes.scene2d.ui.TextButton
@@ -169,6 +170,11 @@ class GameHud(
      * Tables lay out INVISIBLE actors too, so merely hiding panels left them
      * stacked in the layout — tall enough on phone screens to push the top
      * bar (gold/gems/distance) off the top edge.
+     *
+     * The holder's maxHeight (set in [updatePanelCap]) keeps every panel BELOW
+     * the currency pills; panels taller than that scroll inside instead of
+     * covering the top bar. Most screens sit at the bottom; the map (and the
+     * paused card) center in the free space — see [showPanel].
      */
     private val panelHolder = Container<Table>()
 
@@ -214,6 +220,10 @@ class GameHud(
     private val heroActionTeal: TextButton.TextButtonStyle
     private val heroActionPurple: TextButton.TextButtonStyle
     private val shopPanel: Table
+    private val pausePanel: Table
+    private val pauseChip: TextButton
+    private val pauseChipCell: Cell<TextButton>
+    private val panelHolderCell: Cell<Container<Table>>
     private val deadPanel: Table
     private val resultLabel: Label
     private val reviveButton: TextButton
@@ -257,9 +267,15 @@ class GameHud(
         panelRoot.setFillParent(true)
         panelRoot.bottom()
         stage.addActor(panelRoot)
-        panelHolder.fill()
-        panelRoot.add(panelHolder).growX().pad(0f, 8f, 6f, 8f)
+        // fillX only: panels keep their preferred height, so the holder's
+        // vertical alignment (bottom for menus, center for map/pause) works.
+        panelHolder.fillX()
+        panelHolder.bottom()
+        // padTop (set in updatePanelCap) walls off the top-bar zone so centered
+        // panels can never rise underneath the currency pills.
+        panelHolderCell = panelRoot.add(panelHolder).grow().pad(0f, 8f, 6f, 8f)
         panelRoot.row()
+        updatePanelCap()
 
         // --- top bar: GOLD pill | (run: coins + distance) | GEMS pill --------
         goldLabel = Label("", labelStyle)
@@ -276,10 +292,16 @@ class GameHud(
         runCenterGroup.add(scoreLabel).padLeft(14f)
         runCenterGroup.isVisible = false
 
+        // Pause chip: run-screen only (see showPanel), tucked past the gems pill.
+        pauseChip = button("| |", PANEL, TEXT) { game.pauseRun() }
+        pauseChip.isVisible = false
+
         val topBar = Table()
         topBar.add(currencyPill(coinIcon, "GOLD", goldLabel, pillBg)).left()
         topBar.add(runCenterGroup).expandX().center()
         topBar.add(currencyPill(gemIcon, "GEMS", gemsLabel, pillBg)).right()
+        // Collapsed while hidden: an invisible actor still takes layout space.
+        pauseChipCell = topBar.add(pauseChip).size(0f, 44f)
         root.add(topBar).growX()
         root.row()
 
@@ -414,20 +436,27 @@ class GameHud(
         mapTileCells = tileCells.toTypedArray()
         // Final stretch on top, first at the bottom — reads like a climb. The
         // nodes zig-zag left/right with dotted connectors angled to match.
+        // The trail lives in a ScrollPane: when the level list outgrows the
+        // panel's height cap it scrolls instead of covering the top bar.
+        val mapTrail = Table()
         for (i in levelCount - 1 downTo 0) {
             val onLeft = i % 2 == 0
-            mapPanel.add(mapNodes[i]).expandX()
+            mapTrail.add(mapNodes[i]).expandX()
                 .align(if (onLeft) Align.left else Align.right)
                 .padLeft(if (onLeft) 30f else 0f)
                 .padRight(if (onLeft) 0f else 30f)
-            mapPanel.row()
+            mapTrail.row()
             if (i > 0) {
                 val dots = TextureRegion(pathDotsIcon)
                 if ((i - 1) % 2 != 0) dots.flip(true, false) // lower node on the right
-                mapPanel.add(Image(dots)).size(96f, 44f).pad(-4f, 0f, -4f, 0f)
-                mapPanel.row()
+                mapTrail.add(Image(dots)).size(96f, 44f).pad(-4f, 0f, -4f, 0f)
+                mapTrail.row()
             }
         }
+        mapPanel.add(ScrollPane(mapTrail).apply {
+            setScrollingDisabled(true, false)
+            fadeScrollBars = true
+        }).grow()
 
         // --- HEROES: 3D turntable behind, browse + unlock + equip --------------
         heroNameLabel = Label("", Label.LabelStyle(titleFont, GOLD)).apply { setAlignment(Align.center) }
@@ -540,6 +569,27 @@ class GameHud(
             .height(48f).growX().pad(3f).padTop(8f)
         deadPanel.add(button("HOME", PANEL, TEXT) { game.backToMenu() })
             .height(48f).growX().pad(3f).padTop(8f)
+
+        // --- PAUSED: freeze card (pause chip, or the app going to background) ---
+        pausePanel = Table()
+        pausePanel.background = rounded(BG_DEEP, 18, TEAL_DARK, 3)
+        pausePanel.pad(16f)
+        pausePanel.add(Label("PAUSED", Label.LabelStyle(titleFont, TEAL)).apply {
+            setAlignment(Align.center)
+        }).growX().padBottom(4f)
+        pausePanel.row()
+        pausePanel.add(Label("Take a breath - your run is waiting!", mutedSmall).apply {
+            setWrap(true)
+            setAlignment(Align.center)
+        }).growX().padBottom(12f)
+        pausePanel.row()
+        pausePanel.add(pulse(button("RESUME", TEAL, TEAL_TEXT) { game.resumeRun() }))
+            .height(62f).growX().padBottom(6f)
+        pausePanel.row()
+        // HOME banks everything earned so far (RunnerSystem.quitRun) — quitting
+        // is never punished.
+        pausePanel.add(button("QUIT TO HOME", PANEL, TEXT) { game.backToMenu() })
+            .height(48f).growX()
 
         // --- toast: last game event ---------------------------------------------
         // The whole row fades (chip included), so no empty lozenge lingers
@@ -733,6 +783,14 @@ class GameHud(
         }
     }
 
+    /** PAUSED: centered freeze card; score chip stays up so nothing feels lost. */
+    fun showPaused() {
+        showPanel(pausePanel)
+        setNav(NAV_HIDDEN)
+        runCenterGroup.isVisible = true
+        goalBar.isVisible = runGoalMeters > 0
+    }
+
     // =========================================================================
     // Live-run events
     // =========================================================================
@@ -812,6 +870,7 @@ class GameHud(
 
     fun resize(width: Int, height: Int) {
         stage.viewport.update(width, height, true)
+        updatePanelCap()
     }
 
     override fun dispose() {
@@ -887,11 +946,33 @@ class GameHud(
     private fun showPanel(panel: Table?) {
         if (panelHolder.actor === panel) return
         panelHolder.actor = panel
+        // Map + paused cards float centered in the free space between the top
+        // bar and the bottom edge; every other screen docks at the bottom.
+        if (panel === mapPanel || panel === pausePanel) panelHolder.center() else panelHolder.bottom()
+        // The pause chip only exists on the live run screen (panel == null).
+        pauseChip.isVisible = panel == null
+        pauseChipCell.size(if (panel == null) 44f else 0f, 44f)
+            .padLeft(if (panel == null) 8f else 0f)
+        pauseChip.invalidateHierarchy()
         if (panel != null) reveal(panel)
-        if (panel !== null && panel !== deadPanel) {
+        if (panel !== null && panel !== deadPanel && panel !== pausePanel) {
             runCenterGroup.isVisible = false
             goalBar.isVisible = false
         }
+    }
+
+    /**
+     * Caps every panel's height to the space under the top bar (currency
+     * pills + goal bar) so no screen — the map card especially — can ever
+     * cover them; taller content scrolls inside its panel instead.
+     */
+    private fun updatePanelCap() {
+        val safeTop = Gdx.graphics.safeInsetTop / Gdx.graphics.density.coerceAtLeast(1f)
+        panelHolderCell.padTop(TOP_BAR_RESERVE + safeTop)
+        panelHolder.maxHeight(
+            (stage.viewport.worldHeight - PANEL_HEIGHT_RESERVE - safeTop).coerceAtLeast(220f)
+        )
+        panelHolder.invalidateHierarchy()
     }
 
     /** Shows the nav with one active tab, or hides it ([NAV_HIDDEN]). */
@@ -1024,6 +1105,12 @@ class GameHud(
         const val GOAL_BAR_WIDTH = 170f
         const val NODE_TILE_SIZE = 72f
         const val NODE_TILE_SIZE_SELECTED = 84f
+
+        // Vertical space reserved around panels: top bar + goal bar above
+        // (TOP_BAR_RESERVE, also the holder's padTop) plus toast row + nav
+        // bar below (all in dp).
+        const val TOP_BAR_RESERVE = 84f
+        const val PANEL_HEIGHT_RESERVE = 210f
 
         const val NAV_HIDDEN = -1
         const val TAB_MAP = 0

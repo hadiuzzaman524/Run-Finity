@@ -78,6 +78,7 @@ class ForgeFlailGame(
     private lateinit var armsRight: kotlin.Array<ModelInstance>
     private lateinit var swordInstance: ModelInstance
     private lateinit var coinInstances: kotlin.Array<ModelInstance>
+    private lateinit var powerGemInstances: kotlin.Array<ModelInstance>
     private lateinit var barrierInstancesByLevel: kotlin.Array<kotlin.Array<ModelInstance>>
     private lateinit var shadowInstance: ModelInstance
 
@@ -116,6 +117,7 @@ class ForgeFlailGame(
     private var selectedCharacter = 0
     private var characterSelectOpen = false
     private var deathTilt = 0f
+    private var boostTrailCooldown = 0f
 
     // Heroes screen: the roster index on the turntable. Browsing is free;
     // [selectedCharacter] (the equipped hero) only changes through
@@ -186,6 +188,20 @@ class ForgeFlailGame(
             } else {
                 hud?.toast(GOAL_REACHED_TOAST)
             }
+        }
+
+        override fun onBoostStarted() {
+            coinSound?.play(0.9f, 1.5f, 0f)
+            hud?.toast(BOOST_TOAST) // precomputed: fires inside the render path
+        }
+
+        override fun onBoostEnded() {
+            boostTrailCooldown = 0f
+        }
+
+        override fun onBarrierSmashed(lane: Int) {
+            crashSound?.play(0.25f, 1.7f, 0f) // light "crunch", not the death crash
+            spawnCoinBurst(RunnerSystem.LANE_X[lane], 0.8f, 0f)
         }
     }
 
@@ -272,6 +288,11 @@ class ForgeFlailGame(
                 Input.Keys.RIGHT, Input.Keys.D -> runner.moveRight()
                 Input.Keys.SPACE, Input.Keys.UP, Input.Keys.W -> tryJump()
                 Input.Keys.ENTER -> if (runner.state != RunnerSystem.State.RUNNING) startRun()
+                Input.Keys.P, Input.Keys.ESCAPE -> when (runner.state) {
+                    RunnerSystem.State.RUNNING -> pauseRun()
+                    RunnerSystem.State.PAUSED -> resumeRun()
+                    else -> return false
+                }
                 else -> return false
             }
             return true
@@ -333,6 +354,7 @@ class ForgeFlailGame(
             val trackModel = when (LevelCatalog.LEVELS[level].theme) {
                 LevelTheme.TOWN_ROAD -> voxelFactory.createTrackTile()
                 LevelTheme.VILLAGE_ROAD -> voxelFactory.createVillageTrackTile()
+                LevelTheme.MOUNTAIN_PASS -> voxelFactory.createMountainTrackTile()
             }
             kotlin.Array(2) { ModelInstance(trackModel) }
         }
@@ -349,10 +371,13 @@ class ForgeFlailGame(
         voxelFactory.applyRarityTraits(swordInstance, equippedRarity)
         val coinModel = voxelFactory.createCoin()
         coinInstances = kotlin.Array(RunnerSystem.COIN_POOL_SIZE) { ModelInstance(coinModel) }
+        val powerGemModel = voxelFactory.createPowerGem()
+        powerGemInstances = kotlin.Array(RunnerSystem.POWER_GEM_POOL_SIZE) { ModelInstance(powerGemModel) }
         barrierInstancesByLevel = kotlin.Array(LevelCatalog.LEVELS.size) { level ->
             val barrierModel = when (LevelCatalog.LEVELS[level].theme) {
                 LevelTheme.TOWN_ROAD -> voxelFactory.createBarrier()
                 LevelTheme.VILLAGE_ROAD -> voxelFactory.createLogBarrier()
+                LevelTheme.MOUNTAIN_PASS -> voxelFactory.createRockBarrier()
             }
             kotlin.Array(RunnerSystem.BARRIER_POOL_SIZE) { ModelInstance(barrierModel) }
         }
@@ -393,10 +418,11 @@ class ForgeFlailGame(
         if (coinDingCooldown > 0f) coinDingCooldown -= delta
         runner.update(delta)
 
-        // Track tiles scroll with the world and leapfrog behind the camera.
+        // Track tiles scroll with the world (boost included) and leapfrog
+        // behind the camera.
         if (runner.state == RunnerSystem.State.RUNNING) {
             for (i in trackTileZ.indices) {
-                trackTileZ[i] += runner.speed * delta
+                trackTileZ[i] += runner.scrollSpeed * delta
                 if (trackTileZ[i] > TRACK_RESET_Z) trackTileZ[i] -= 2f * VoxelModelFactory.TRACK_TILE_LENGTH
             }
         }
@@ -424,7 +450,16 @@ class ForgeFlailGame(
             val targetYaw = if (running) 0f else 180f
             playerYaw += (targetYaw - playerYaw) * (8f * delta).coerceAtMost(1f)
         }
-        if (running && runner.playerY == 0f) runPhase += delta * runner.speed * 1.4f
+        if (running && runner.playerY == 0f) runPhase += delta * runner.scrollSpeed * 1.4f
+        // Boosted runs leave a sparkle trail at the heels — the "power mode is
+        // on" cue kids see without reading (pooled sparks, zero allocation).
+        if (running && runner.isBoosted) {
+            boostTrailCooldown -= delta
+            if (boostTrailCooldown <= 0f) {
+                boostTrailCooldown = BOOST_TRAIL_INTERVAL
+                spawnSparks(runner.playerX, 0.35f, 0.6f, BOOST_TRAIL_SPARKS)
+            }
+        }
         val bob = if (running && runner.playerY == 0f) Math.abs(MathUtils.sin(runPhase)) * 0.06f else 0f
         val swing = if (running) MathUtils.sin(runPhase) * 38f else 0f
         val px = runner.playerX
@@ -516,6 +551,14 @@ class ForgeFlailGame(
                 .rotate(Vector3.X, 90f)
             modelBatch.render(coinInstances[i], environment)
         }
+        for (i in runner.powerGems.indices) {
+            val gem = runner.powerGems[i]
+            if (!gem.active) continue
+            powerGemInstances[i].transform
+                .setToTranslation(RunnerSystem.LANE_X[gem.lane], POWER_GEM_BASE_Y, gem.z)
+                .rotate(Vector3.Y, coinSpinDegrees)
+            modelBatch.render(powerGemInstances[i], environment)
+        }
         for (i in runner.barriers.indices) {
             val barrier = runner.barriers[i]
             if (!barrier.active) continue
@@ -546,6 +589,9 @@ class ForgeFlailGame(
 
     override fun pause() {
         if (!created) return
+        // Backgrounding mid-run freezes it: coming back lands on the paused
+        // panel instead of an instant barrier face-plant.
+        if (runner.state == RunnerSystem.State.RUNNING) pauseRun()
         save.persistRunner(
             economy.gold, economy.gems, bestScore, equippedRarity.ordinal, selectedCharacter,
             unlockedCharacters, unlockedLevels, selectedLevelIndex
@@ -571,6 +617,10 @@ class ForgeFlailGame(
 
     /** Six sparks from the pool at the pickup point; skips silently when full. */
     private fun spawnCoinBurst(x: Float, y: Float, z: Float) {
+        spawnSparks(x, y, z, SPARKS_PER_COIN)
+    }
+
+    private fun spawnSparks(x: Float, y: Float, z: Float, count: Int) {
         var spawned = 0
         for (i in 0 until MAX_SPARKLES) {
             if (sparkleLife[i] > 0f) continue
@@ -581,7 +631,7 @@ class ForgeFlailGame(
             sparkleVY[i] = MathUtils.random(2.5f, 5f)
             sparkleVZ[i] = MathUtils.random(-0.5f, 2f)
             sparkleLife[i] = MathUtils.random(0.3f, 0.45f)
-            if (++spawned == SPARKS_PER_COIN) return
+            if (++spawned == count) return
         }
     }
 
@@ -595,6 +645,20 @@ class ForgeFlailGame(
         coinsDoubledThisRun = false
         deathTilt = 0f
         runner.startRun(LevelCatalog.LEVELS[selectedLevelIndex])
+        hud?.setRunning()
+    }
+
+    /** Pause button on the run screen (also fired when the app backgrounds). */
+    fun pauseRun() {
+        if (runner.state != RunnerSystem.State.RUNNING) return
+        runner.pauseRun()
+        hud?.showPaused()
+    }
+
+    /** RESUME on the paused panel. */
+    fun resumeRun() {
+        if (runner.state != RunnerSystem.State.PAUSED) return
+        runner.resumeRun()
         hud?.setRunning()
     }
 
@@ -652,9 +716,10 @@ class ForgeFlailGame(
         refreshHeroesScreen()
     }
 
-    /** Leaving the game-over screen: stand the character back up, clear debris. */
+    /** Leaving the game-over/paused screen: stand back up, clear debris. */
     private fun clearCrashedRun() {
         if (runner.state == RunnerSystem.State.DEAD) runner.resetToIdle()
+        if (runner.state == RunnerSystem.State.PAUSED) runner.quitRun() // banks the run so far
         deathTilt = 0f
     }
 
@@ -729,9 +794,13 @@ class ForgeFlailGame(
     companion object {
         private const val TAG = "ForgeFlail"
         private const val GOAL_REACHED_TOAST = "Level goal reached - keep running for a new best!"
+        private const val BOOST_TOAST = "POWER BOOST! Smash through everything!"
         private const val MAX_FRAME_DELTA = 1f / 30f
         private const val COIN_DING_MIN_INTERVAL = 0.08f
         private const val COIN_BASE_Y = 0.68f
+        private const val POWER_GEM_BASE_Y = 0.3f
+        private const val BOOST_TRAIL_INTERVAL = 0.07f
+        private const val BOOST_TRAIL_SPARKS = 2
         private const val COIN_SPIN_DEG_PER_SEC = 220f
         private const val TRACK_RESET_Z = 30f
         private const val MAX_SPARKLES = 24

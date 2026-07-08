@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.forgeflail.core.runner.RunnerSystemBoostTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-07-08T02:26:03.574Z" hostname="MDs-MacBook-Pro.local" time="0.035">
+  <properties/>
+  <testcase name="pause freezes the run and quit banks earnings()" classname="com.forgeflail.core.runner.RunnerSystemBoostTest" time="0.025"/>
+  <testcase name="power gem triggers boost, shield smashes barriers, boost ends fairly()" classname="com.forgeflail.core.runner.RunnerSystemBoostTest" time="0.002"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

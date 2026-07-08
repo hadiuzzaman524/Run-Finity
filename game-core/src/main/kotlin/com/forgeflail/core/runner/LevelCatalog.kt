@@ -3,7 +3,7 @@ package com.forgeflail.core.runner
 import com.badlogic.gdx.graphics.Color
 
 /** Which track-tile / barrier art set a level renders with. */
-enum class LevelTheme { TOWN_ROAD, VILLAGE_ROAD }
+enum class LevelTheme { TOWN_ROAD, VILLAGE_ROAD, MOUNTAIN_PASS }
 
 /**
  * Tuning + dressing for one stretch of the delivery route. Difficulty lives
@@ -31,6 +31,11 @@ class LevelSpec(
     val coinTrailRoll: Int,
     val coinRowRoll: Int,
     val singleBarrierRoll: Int,
+    /**
+     * Launch speed of a jump; lower = flatter arc = tighter timing window over
+     * barriers (the mountain's "steep grade" knob). Defaults to the classic arc.
+     */
+    val jumpVelocity: Float = RunnerSystem.JUMP_VELOCITY,
 )
 
 /**
@@ -56,7 +61,7 @@ object LevelCatalog {
         LevelSpec(
             displayName = "Village Road",
             intro = "The old village path: log fences, hay carts and a faster pace!",
-            goalMeters = 0,
+            goalMeters = 800,
             theme = LevelTheme.VILLAGE_ROAD,
             sky = Color(0.98f, 0.82f, 0.58f, 1f),
             // The earned stretch: quicker ramp, tighter rows, more barriers —
@@ -64,6 +69,20 @@ object LevelCatalog {
             startSpeed = 10f, maxSpeed = 21f, speedRampPerSec = 0.24f,
             rowSpacingMin = 5f, rowSpacingMax = 8.5f,
             coinTrailRoll = 2, coinRowRoll = 3, singleBarrierRoll = 7,
+        ),
+        LevelSpec(
+            displayName = "Mountain Pass",
+            intro = "Up the icy pass: fallen boulders, thin air and heavy legs!",
+            goalMeters = 0,
+            theme = LevelTheme.MOUNTAIN_PASS,
+            sky = Color(0.62f, 0.79f, 0.93f, 1f),
+            // The endless finale: fastest ramp, tightest rows, most double
+            // squeezes, and a flatter jump arc (steep grade) that narrows the
+            // window over a boulder — timing skill, still always a free lane.
+            startSpeed = 12f, maxSpeed = 24f, speedRampPerSec = 0.3f,
+            rowSpacingMin = 4.5f, rowSpacingMax = 7.5f,
+            coinTrailRoll = 1, coinRowRoll = 2, singleBarrierRoll = 6,
+            jumpVelocity = 7.6f,
         ),
     )
 }

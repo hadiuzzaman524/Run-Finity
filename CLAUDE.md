@@ -24,10 +24,14 @@ systems" below.)
 ```
 
 Controls: swipe left/right = change lane, swipe up = jump (desktop: arrows/AD,
-space, Enter to start). The HUD (`ui/GameHud`) has three states — READY (level
-picker with locked levels showing their unlock goal, RUN button, sword-skin
-gacha chest with the odds disclosure, gem shop), RUNNING (live score bar),
-DEAD (revive-by-ad, x2-coins-by-ad, run again, menu).
+space, Enter to start, P/Esc to pause). The HUD (`ui/GameHud`) has four states —
+READY (level picker with locked levels showing their unlock goal, RUN button,
+sword-skin gacha chest with the odds disclosure, gem shop), RUNNING (live score
+bar + pause chip), PAUSED (resume / quit-to-home card; also entered
+automatically when the app backgrounds mid-run), DEAD (revive-by-ad,
+x2-coins-by-ad, run again, menu). Every panel's height is capped
+(`updatePanelCap`) so no card can cover the currency pills; the map/paused
+cards center on screen and tall content scrolls inside its panel.
 
 ## Architecture (game-core, package `com.forgeflail.core`)
 
@@ -37,14 +41,21 @@ DEAD (revive-by-ad, x2-coins-by-ad, run again, menu).
 - `runner/RunnerSystem` — the whole simulation: 3-lane world scrolls toward +Z
   (player fixed at z=0), jump physics, row spawner (always leaves a free lane),
   lane-quantized collision, coin banking (delta-banked so revive can't
-  double-count), one ad-revive per run. Coins/barriers are fixed pre-allocated
-  pools recycled via an `active` flag; renderer binds one ModelInstance per slot.
-  All difficulty tuning comes from the `LevelSpec` passed to `startRun`.
+  double-count), one ad-revive per run. Rare "power gem" pickups trigger a
+  ~60 m auto-boost: 1.5x scroll with a shield that smashes barriers instead of
+  dying (and clears anything too close when it expires — no unfair deaths).
+  Boost is pickup-earned only, never sold. `pauseRun`/`resumeRun`/`quitRun`
+  freeze or abandon a run (quit banks everything earned so far).
+  Coins/barriers/power gems are fixed pre-allocated pools recycled via an
+  `active` flag; renderer binds one ModelInstance per slot. All difficulty
+  tuning comes from the `LevelSpec` passed to `startRun`.
 - `runner/LevelCatalog` — the level list; `LevelSpec` is pure data (speeds, row
   spacing, spawn d10 odds, `LevelTheme` art set, sky/fog color, `goalMeters`).
   Reaching the goal in one run fires `onLevelCompleted` and unlocks the next
   level: Level 1 "Town Road" -> Level 2 "Village Road" (dirt track, huts,
-  fences, hay, log barriers; faster ramp, tighter rows). Progression is
+  fences, hay, log barriers; faster ramp, tighter rows) -> Level 3 "Mountain
+  Pass" (stone road, cliff wall, snowy peaks, boulder barriers; fastest ramp,
+  tightest rows, flatter per-level `jumpVelocity`). Progression is
   skill-only — never sold or ad-gated; unlock + selection persist in saves.
 - `characters/CharacterCatalog` — the 5 selectable runners (`CharacterSpec`:
   colors, `HeadStyle`, proportions). Purely cosmetic; identical gameplay stats
