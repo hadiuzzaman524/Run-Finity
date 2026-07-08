@@ -11,6 +11,7 @@ import com.badlogic.gdx.graphics.PerspectiveCamera
 import com.badlogic.gdx.graphics.g3d.Environment
 import com.badlogic.gdx.graphics.g3d.ModelBatch
 import com.badlogic.gdx.graphics.g3d.ModelInstance
+import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
 import com.badlogic.gdx.input.GestureDetector
@@ -82,6 +83,11 @@ class ForgeFlailGame(
     private lateinit var barrierInstancesByLevel: kotlin.Array<kotlin.Array<ModelInstance>>
     private lateinit var shadowInstance: ModelInstance
 
+    // Boost aura: fiery ring under the runner while a power-gem boost runs.
+    private lateinit var auraInstance: ModelInstance
+    private lateinit var auraBlendOuter: BlendingAttribute // cached in create(): plain field writes in render
+    private lateinit var auraBlendInner: BlendingAttribute
+
     // Coin-burst sparkles: fixed pool, plain float state, zero allocation.
     private lateinit var sparkleInstances: kotlin.Array<ModelInstance>
     private val sparkleX = FloatArray(MAX_SPARKLES)
@@ -118,6 +124,8 @@ class ForgeFlailGame(
     private var characterSelectOpen = false
     private var deathTilt = 0f
     private var boostTrailCooldown = 0f
+    private var auraPhase = 0f // dedicated pulse clock (runPhase freezes mid-air)
+    private var fireRingCooldown = 0f
 
     // Heroes screen: the roster index on the turntable. Browsing is free;
     // [selectedCharacter] (the equipped hero) only changes through
@@ -383,6 +391,9 @@ class ForgeFlailGame(
         }
 
         shadowInstance = ModelInstance(voxelFactory.createBlobShadow())
+        auraInstance = ModelInstance(voxelFactory.createBoostAura())
+        auraBlendOuter = auraInstance.materials.get(0).get(BlendingAttribute.Type) as BlendingAttribute
+        auraBlendInner = auraInstance.materials.get(1).get(BlendingAttribute.Type) as BlendingAttribute
         val sparkleModel = voxelFactory.createSparkle()
         sparkleInstances = kotlin.Array(MAX_SPARKLES) { ModelInstance(sparkleModel) }
 
@@ -459,6 +470,15 @@ class ForgeFlailGame(
                 boostTrailCooldown = BOOST_TRAIL_INTERVAL
                 spawnSparks(runner.playerX, 0.35f, 0.6f, BOOST_TRAIL_SPARKS)
             }
+            // Ring fire: embers rise off the aura circle itself.
+            fireRingCooldown -= delta
+            if (fireRingCooldown <= 0f) {
+                fireRingCooldown = FIRE_RING_INTERVAL
+                spawnFireSparks(runner.playerX, runner.boostFraction)
+            }
+            auraPhase += delta * AURA_PULSE_SPEED
+        } else {
+            auraPhase = 0f
         }
         val bob = if (running && runner.playerY == 0f) Math.abs(MathUtils.sin(runPhase)) * 0.06f else 0f
         val swing = if (running) MathUtils.sin(runPhase) * 38f else 0f
@@ -520,6 +540,22 @@ class ForgeFlailGame(
             .setToTranslation(px, 0.015f, 0f)
             .scale(shadowScale, 1f, shadowScale)
 
+        // Boost aura ring: ground-locked like the shadow; shrinks with the
+        // remaining boost so the circle doubles as the boost timer, and
+        // flicker-fades over the last stretch.
+        if (running && runner.isBoosted) {
+            val frac = runner.boostFraction
+            val pulse = 1f + MathUtils.sin(auraPhase) * 0.06f
+            val auraScale = (0.55f + 0.45f * frac) * pulse
+            auraInstance.transform
+                .setToTranslation(px, 0.05f, 0f) // above shadow's y=0.015, no z-fight
+                .rotate(Vector3.Y, coinSpinDegrees)
+                .scale(auraScale, 1f, auraScale)
+            val fade = (frac * 5f).coerceAtMost(1f) // fade-out over the last 12 m
+            auraBlendOuter.opacity = 0.85f * fade
+            auraBlendInner.opacity = 0.70f * fade
+        }
+
         // Sparkle particle tick (fixed pool, float math only).
         for (i in 0 until MAX_SPARKLES) {
             if (sparkleLife[i] <= 0f) continue
@@ -574,6 +610,7 @@ class ForgeFlailGame(
                 .scale(s, s, s)
             modelBatch.render(sparkleInstances[i], environment)
         }
+        if (running && runner.isBoosted) modelBatch.render(auraInstance, environment)
         modelBatch.render(shadowInstance, environment) // blended: batch sorts it last
         modelBatch.end()
 
@@ -632,6 +669,24 @@ class ForgeFlailGame(
             sparkleVZ[i] = MathUtils.random(-0.5f, 2f)
             sparkleLife[i] = MathUtils.random(0.3f, 0.45f)
             if (++spawned == count) return
+        }
+    }
+
+    /** Embers rising from a random point on the aura circle (pooled, no alloc). */
+    private fun spawnFireSparks(px: Float, frac: Float) {
+        val r = AURA_RADIUS * (0.55f + 0.45f * frac) // flames track the shrinking ring
+        var spawned = 0
+        for (i in 0 until MAX_SPARKLES) {
+            if (sparkleLife[i] > 0f) continue
+            val a = MathUtils.random(0f, MathUtils.PI2)
+            sparkleX[i] = px + MathUtils.cos(a) * r
+            sparkleY[i] = 0.1f
+            sparkleZ[i] = MathUtils.sin(a) * r
+            sparkleVX[i] = MathUtils.random(-0.4f, 0.4f)
+            sparkleVY[i] = MathUtils.random(3.5f, 5.5f) // strongly upward = fire
+            sparkleVZ[i] = MathUtils.random(-0.4f, 0.4f)
+            sparkleLife[i] = MathUtils.random(0.4f, 0.55f)
+            if (++spawned == FIRE_RING_SPARKS) return
         }
     }
 
@@ -801,9 +856,13 @@ class ForgeFlailGame(
         private const val POWER_GEM_BASE_Y = 0.3f
         private const val BOOST_TRAIL_INTERVAL = 0.07f
         private const val BOOST_TRAIL_SPARKS = 2
+        private const val FIRE_RING_INTERVAL = 0.09f
+        private const val FIRE_RING_SPARKS = 2
+        private const val AURA_RADIUS = 1.12f // flame spawn radius, between the ring bands
+        private const val AURA_PULSE_SPEED = 9f
         private const val COIN_SPIN_DEG_PER_SEC = 220f
         private const val TRACK_RESET_Z = 30f
-        private const val MAX_SPARKLES = 24
+        private const val MAX_SPARKLES = 40 // heel trail + ring fire + coin bursts, peak ~28
         private const val SPARKS_PER_COIN = 6
 
         // Chase framing: low behind the runner, looking down the track.

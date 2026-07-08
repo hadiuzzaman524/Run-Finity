@@ -86,6 +86,9 @@ class RunnerSystem(
         private set
     val isBoosted: Boolean get() = boostMetersLeft > 0f
 
+    /** 0..1 fraction of boost remaining — drives the aura's shrink/fade. */
+    val boostFraction: Float get() = boostMetersLeft / BOOST_DISTANCE_METERS
+
     /** World scroll speed this frame — the renderer's counterpart of [speed]. */
     val scrollSpeed: Float
         get() = if (boostMetersLeft > 0f) speed * BOOST_SPEED_MULTIPLIER else speed

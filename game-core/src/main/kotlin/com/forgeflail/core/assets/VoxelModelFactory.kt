@@ -11,6 +11,7 @@ import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
 import com.badlogic.gdx.graphics.g3d.utils.ModelBuilder
 import com.badlogic.gdx.graphics.g3d.utils.shapebuilders.BoxShapeBuilder
 import com.badlogic.gdx.graphics.g3d.utils.shapebuilders.CylinderShapeBuilder
+import com.badlogic.gdx.graphics.g3d.utils.shapebuilders.EllipseShapeBuilder
 import com.badlogic.gdx.utils.Array as GdxArray
 import com.badlogic.gdx.utils.Disposable
 import com.forgeflail.core.characters.CharacterSpec
@@ -246,6 +247,31 @@ class VoxelModelFactory : Disposable {
         )
         val part = modelBuilder.part("shadow", GL20.GL_TRIANGLES, VERTEX_ATTRIBUTES, shadowMat)
         CylinderShapeBuilder.build(part, 1.15f, 0.02f, 1.15f, 14)
+        return track(modelBuilder.end())
+    }
+
+    /**
+     * Boost aura: flat fiery ring the runner stands inside while a power-gem
+     * boost is active. Additive-blended so it glows over any road theme.
+     * Two concentric rings: hot pink core (matches the power gem) inside an
+     * ember-orange outer band. Renderer drives scale/opacity from boostFraction.
+     */
+    fun createBoostAura(): Model {
+        modelBuilder.begin()
+        val outerMat = Material(
+            ColorAttribute.createDiffuse(EMBER_GLOW),
+            ColorAttribute.createEmissive(EMBER_GLOW.r * 0.9f, EMBER_GLOW.g * 0.9f, EMBER_GLOW.b * 0.9f, 1f),
+            BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE, 0.85f)
+        )
+        val innerMat = Material(
+            ColorAttribute.createDiffuse(POWER_PINK),
+            ColorAttribute.createEmissive(POWER_PINK.r, POWER_PINK.g, POWER_PINK.b, 1f),
+            BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE, 0.7f)
+        )
+        val outer = modelBuilder.part("auraOuter", GL20.GL_TRIANGLES, VERTEX_ATTRIBUTES, outerMat)
+        EllipseShapeBuilder.build(outer, 2.6f, 2.6f, 1.9f, 1.9f, 20, 0f, 0f, 0f, 0f, 1f, 0f)
+        val inner = modelBuilder.part("auraInner", GL20.GL_TRIANGLES, VERTEX_ATTRIBUTES, innerMat)
+        EllipseShapeBuilder.build(inner, 1.9f, 1.9f, 1.5f, 1.5f, 20, 0f, 0.01f, 0f, 0f, 1f, 0f)
         return track(modelBuilder.end())
     }
 
