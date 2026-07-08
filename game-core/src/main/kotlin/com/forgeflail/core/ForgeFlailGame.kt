@@ -110,6 +110,15 @@ class ForgeFlailGame(
     private var coinSound: Sound? = null
     private var jumpSound: Sound? = null
     private var crashSound: Sound? = null
+    private var footstepSound: Sound? = null
+
+    // Sound toggles (settings screen). Read by the HUD, persisted on toggle.
+    var coinSoundsOn = true
+        private set
+    var footstepSoundsOn = true
+        private set
+    var actionSoundsOn = true
+        private set
 
     // --- run/session state (plain fields; no per-frame objects) -------------
     private var created = false
@@ -119,6 +128,7 @@ class ForgeFlailGame(
     private var coinDingCooldown = 0f
     private var coinSpinDegrees = 0f
     private var runPhase = 0f
+    private var stepPhase = 0f // footfall clock: one step sound every PI radians
     private var playerYaw = 180f // faces the camera in the menu, -Z when running
     private var selectedCharacter = 0
     private var characterSelectOpen = false
@@ -172,7 +182,7 @@ class ForgeFlailGame(
             // Instant feedback: ding (slight pitch variation), counter, sparkles.
             // The ding is rate-limited: fast coin trails otherwise spam the
             // sound pool, a frame-hitch source on budget phones.
-            if (coinDingCooldown <= 0f) {
+            if (coinDingCooldown <= 0f && coinSoundsOn) {
                 coinSound?.play(0.6f, 0.95f + MathUtils.random(0.12f), 0f)
                 coinDingCooldown = COIN_DING_MIN_INTERVAL
             }
@@ -181,14 +191,14 @@ class ForgeFlailGame(
         }
 
         override fun onPlayerDied(distanceMeters: Int, runCoins: Int) {
-            crashSound?.play(0.9f)
+            if (actionSoundsOn) crashSound?.play(0.9f)
             val newBest = distanceMeters > bestScore
             if (newBest) bestScore = distanceMeters
             hud?.onRunEnded(distanceMeters, runCoins, bestScore, newBest, runner.canRevive, !coinsDoubledThisRun && runCoins > 0)
         }
 
         override fun onLevelCompleted(level: LevelSpec) {
-            coinSound?.play(0.8f, 1.3f, 0f) // triumphant high ding; run continues
+            if (coinSoundsOn) coinSound?.play(0.8f, 1.3f, 0f) // triumphant high ding; run continues
             val next = selectedLevelIndex + 1
             if (next < LevelCatalog.LEVELS.size && unlockedLevels <= next) {
                 unlockedLevels = next + 1
@@ -199,7 +209,7 @@ class ForgeFlailGame(
         }
 
         override fun onBoostStarted() {
-            coinSound?.play(0.9f, 1.5f, 0f)
+            if (coinSoundsOn) coinSound?.play(0.9f, 1.5f, 0f)
             hud?.toast(BOOST_TOAST) // precomputed: fires inside the render path
         }
 
@@ -208,7 +218,7 @@ class ForgeFlailGame(
         }
 
         override fun onBarrierSmashed(lane: Int) {
-            crashSound?.play(0.25f, 1.7f, 0f) // light "crunch", not the death crash
+            if (actionSoundsOn) crashSound?.play(0.25f, 1.7f, 0f) // light "crunch", not the death crash
             spawnCoinBurst(RunnerSystem.LANE_X[lane], 0.8f, 0f)
         }
     }
@@ -400,6 +410,10 @@ class ForgeFlailGame(
         coinSound = Gdx.audio.newSound(Gdx.files.internal("sfx/coin.wav"))
         jumpSound = Gdx.audio.newSound(Gdx.files.internal("sfx/jump.wav"))
         crashSound = Gdx.audio.newSound(Gdx.files.internal("sfx/crash.wav"))
+        footstepSound = Gdx.audio.newSound(Gdx.files.internal("sfx/footstep.wav"))
+        coinSoundsOn = save.loadCoinSoundsOn()
+        footstepSoundsOn = save.loadFootstepSoundsOn()
+        actionSoundsOn = save.loadActionSoundsOn()
 
         // -- HUD + input (UI first, then swipes, then keys)
         val hud = GameHud(this, economy, runner)
@@ -461,7 +475,19 @@ class ForgeFlailGame(
             val targetYaw = if (running) 0f else 180f
             playerYaw += (targetYaw - playerYaw) * (8f * delta).coerceAtMost(1f)
         }
-        if (running && runner.playerY == 0f) runPhase += delta * runner.scrollSpeed * 1.4f
+        if (running && runner.playerY == 0f) {
+            runPhase += delta * runner.scrollSpeed * 1.4f
+            // Footsteps ride the same clock as the leg swing: one foot strikes
+            // every half swing cycle (PI). Slight pitch spread keeps the
+            // left/right patter from sounding like a metronome.
+            stepPhase += delta * runner.scrollSpeed * 1.4f
+            if (stepPhase >= MathUtils.PI) {
+                stepPhase -= MathUtils.PI
+                if (footstepSoundsOn) footstepSound?.play(0.5f, 0.85f + MathUtils.random(0.3f), 0f)
+            }
+        } else {
+            stepPhase = 0f // airborne/idle: the next landing starts a fresh cycle
+        }
         // Boosted runs leave a sparkle trail at the heels — the "power mode is
         // on" cue kids see without reading (pooled sparks, zero allocation).
         if (running && runner.isBoosted) {
@@ -642,11 +668,12 @@ class ForgeFlailGame(
         coinSound?.dispose()
         jumpSound?.dispose()
         crashSound?.dispose()
+        footstepSound?.dispose()
         hud?.dispose()
     }
 
     private fun tryJump() {
-        if (runner.state == RunnerSystem.State.RUNNING && runner.playerY == 0f) {
+        if (runner.state == RunnerSystem.State.RUNNING && runner.playerY == 0f && actionSoundsOn) {
             jumpSound?.play(0.45f)
         }
         runner.jump()
@@ -756,6 +783,32 @@ class ForgeFlailGame(
         hud?.showShop()
     }
 
+    /** Gear icon in the top bar: sound toggles (coin/footstep/action). */
+    fun openSettings() {
+        characterSelectOpen = false
+        clearCrashedRun()
+        hud?.showSettings()
+    }
+
+    fun toggleCoinSounds() {
+        coinSoundsOn = !coinSoundsOn
+        persistSoundSettings()
+    }
+
+    fun toggleFootstepSounds() {
+        footstepSoundsOn = !footstepSoundsOn
+        persistSoundSettings()
+    }
+
+    fun toggleActionSounds() {
+        actionSoundsOn = !actionSoundsOn
+        persistSoundSettings()
+    }
+
+    private fun persistSoundSettings() {
+        save.persistSoundSettings(coinSoundsOn, footstepSoundsOn, actionSoundsOn)
+    }
+
     /** "LET'S GO!" on the first-launch quest intro — straight to the hero picker. */
     fun finishOnboarding() {
         openCharacterSelect()
@@ -788,7 +841,9 @@ class ForgeFlailGame(
     /**
      * The Heroes screen action button: equips the previewed hero, or unlocks
      * it first when it still costs gems (earned free at 1 per 25 m — heroes
-     * are cosmetic, so this is expression, never progression).
+     * are cosmetic, so this is expression, never progression). When the hero
+     * is already equipped the button reads "EQUIPPED - LET'S RUN!" and does
+     * exactly that: starts a run with it.
      */
     fun equipOrUnlockCharacter() {
         val spec = CharacterCatalog.ROSTER[previewCharacter]
@@ -800,6 +855,9 @@ class ForgeFlailGame(
             }
             unlockedCharacters = unlockedCharacters or bit
             hud?.toast("${spec.displayName} joined your team!")
+        } else if (previewCharacter == selectedCharacter) {
+            startRun()
+            return
         }
         selectedCharacter = previewCharacter
         refreshHeroesScreen()

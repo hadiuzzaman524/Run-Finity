@@ -51,6 +51,21 @@ class SaveManager {
 
     fun loadSelectedLevel(): Int = prefs.getInteger(KEY_SELECTED_LEVEL, 0)
 
+    // Sound toggles from the settings screen; everything defaults to ON.
+    fun loadCoinSoundsOn(): Boolean = prefs.getBoolean(KEY_SOUND_COINS, true)
+
+    fun loadFootstepSoundsOn(): Boolean = prefs.getBoolean(KEY_SOUND_FOOTSTEPS, true)
+
+    fun loadActionSoundsOn(): Boolean = prefs.getBoolean(KEY_SOUND_ACTIONS, true)
+
+    /** Flushed on every toggle — user-driven and rare, so the disk hit is fine. */
+    fun persistSoundSettings(coinsOn: Boolean, footstepsOn: Boolean, actionsOn: Boolean) {
+        prefs.putBoolean(KEY_SOUND_COINS, coinsOn)
+        prefs.putBoolean(KEY_SOUND_FOOTSTEPS, footstepsOn)
+        prefs.putBoolean(KEY_SOUND_ACTIONS, actionsOn)
+        prefs.flush()
+    }
+
     /** Runner-mode batch write. Call from `pause()` — not per frame. */
     fun persistRunner(
         gold: Long,
@@ -95,5 +110,8 @@ class SaveManager {
         const val KEY_UNLOCKED_CHARACTERS = "unlocked_characters"
         const val KEY_UNLOCKED_LEVELS = "unlocked_levels"
         const val KEY_SELECTED_LEVEL = "selected_level"
+        const val KEY_SOUND_COINS = "sound_coins"
+        const val KEY_SOUND_FOOTSTEPS = "sound_footsteps"
+        const val KEY_SOUND_ACTIONS = "sound_actions"
     }
 }

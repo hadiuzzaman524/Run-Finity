@@ -152,6 +152,23 @@ class GameHud(
         tex
     }
 
+    /** Gear icon for the settings chip: 8 teeth, ring body, punched hub. */
+    private val gearIcon: Texture = Pixmap(28, 28, Pixmap.Format.RGBA8888).let { pm ->
+        pm.setColor(Color.valueOf("B7A9E8"))
+        for (i in 0 until 8) {
+            val a = i * (Math.PI / 4.0)
+            pm.fillCircle(14 + (Math.cos(a) * 9.5).toInt(), 14 + (Math.sin(a) * 9.5).toInt(), 3)
+        }
+        pm.fillCircle(14, 14, 9)
+        pm.blending = Pixmap.Blending.None
+        pm.setColor(0f, 0f, 0f, 0f)
+        pm.fillCircle(14, 14, 4)
+        val tex = Texture(pm)
+        pm.dispose()
+        ownedTextures.add(tex)
+        tex
+    }
+
     /** One diagonal stretch of the dotted road between two map nodes. */
     private val pathDotsIcon: Texture = Pixmap(96, 44, Pixmap.Format.RGBA8888).let { pm ->
         pm.setColor(Color.valueOf("7B61FF"))
@@ -220,6 +237,14 @@ class GameHud(
     private val heroActionTeal: TextButton.TextButtonStyle
     private val heroActionPurple: TextButton.TextButtonStyle
     private val shopPanel: Table
+    private val settingsPanel: Table
+    private val settingsChip: Table
+    private val settingsChipCell: Cell<Table>
+    private val coinSoundToggle: TextButton
+    private val footstepSoundToggle: TextButton
+    private val actionSoundToggle: TextButton
+    private val toggleOnStyle: TextButton.TextButtonStyle
+    private val toggleOffStyle: TextButton.TextButtonStyle
     private val pausePanel: Table
     private val pauseChip: TextButton
     private val pauseChipCell: Cell<TextButton>
@@ -296,12 +321,22 @@ class GameHud(
         pauseChip = button("| |", PANEL, TEXT) { game.pauseRun() }
         pauseChip.isVisible = false
 
+        // Settings gear: menu screens only (see setNav), same top-bar slot.
+        settingsChip = Table()
+        settingsChip.background = pillBg
+        settingsChip.add(Image(gearIcon)).size(22f, 22f)
+        settingsChip.addListener(object : ClickListener() {
+            override fun clicked(event: InputEvent?, x: Float, y: Float) = game.openSettings()
+        })
+        settingsChip.isVisible = false
+
         val topBar = Table()
         topBar.add(currencyPill(coinIcon, "GOLD", goldLabel, pillBg)).left()
         topBar.add(runCenterGroup).expandX().center()
         topBar.add(currencyPill(gemIcon, "GEMS", gemsLabel, pillBg)).right()
         // Collapsed while hidden: an invisible actor still takes layout space.
         pauseChipCell = topBar.add(pauseChip).size(0f, 44f)
+        settingsChipCell = topBar.add(settingsChip).size(0f, 44f)
         root.add(topBar).growX()
         root.row()
 
@@ -537,6 +572,56 @@ class GameHud(
             setAlignment(Align.center)
         }).growX().padTop(4f)
 
+        // --- SETTINGS: sound toggles (gear chip in the top bar) -----------------
+        toggleOnStyle = buttonStyle(TEAL, TEAL_TEXT)
+        toggleOffStyle = buttonStyle(PANEL, MUTED)
+        coinSoundToggle = TextButton("", toggleOnStyle).also { btn ->
+            btn.label.setAlignment(Align.center)
+            btn.addListener(object : ClickListener() {
+                override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                    game.toggleCoinSounds()
+                    refreshSettings()
+                }
+            })
+        }
+        footstepSoundToggle = TextButton("", toggleOnStyle).also { btn ->
+            btn.label.setAlignment(Align.center)
+            btn.addListener(object : ClickListener() {
+                override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                    game.toggleFootstepSounds()
+                    refreshSettings()
+                }
+            })
+        }
+        actionSoundToggle = TextButton("", toggleOnStyle).also { btn ->
+            btn.label.setAlignment(Align.center)
+            btn.addListener(object : ClickListener() {
+                override fun clicked(event: InputEvent?, x: Float, y: Float) {
+                    game.toggleActionSounds()
+                    refreshSettings()
+                }
+            })
+        }
+        settingsPanel = Table()
+        settingsPanel.background = rounded(BG_DEEP, 18, BORDER_SOFT, 2)
+        settingsPanel.pad(14f)
+        settingsPanel.add(Label("Settings", Label.LabelStyle(titleFont, GOLD)).apply {
+            setAlignment(Align.center)
+        }).growX().padBottom(8f)
+        settingsPanel.row()
+        settingsPanel.add(Label("Sounds", labelStyle)).left().padBottom(4f)
+        settingsPanel.row()
+        settingsPanel.add(settingRow(cardBg, "Coins & Pickups", "Coin dings, gems and boost jingles", coinSoundToggle))
+            .growX().padBottom(6f)
+        settingsPanel.row()
+        settingsPanel.add(settingRow(cardBg, "Running Footsteps", "Your hero's steps on the road", footstepSoundToggle))
+            .growX().padBottom(6f)
+        settingsPanel.row()
+        settingsPanel.add(settingRow(cardBg, "Jump & Crash", "Jumps, tumbles and barrier smashes", actionSoundToggle))
+            .growX().padBottom(10f)
+        settingsPanel.row()
+        settingsPanel.add(button("DONE", TEAL, TEAL_TEXT) { game.backToMenu() }).height(52f).growX()
+
         // --- DEAD: game-over panel ---------------------------------------------
         resultLabel = Label("", labelStyle).apply {
             setWrap(true)
@@ -765,6 +850,25 @@ class GameHud(
         setNav(TAB_SHOP)
     }
 
+    /** SETTINGS: sound toggles; the nav stays up so any tab leads back out. */
+    fun showSettings() {
+        showPanel(settingsPanel)
+        setNav(TAB_NONE)
+        refreshSettings()
+    }
+
+    /** Syncs the toggle buttons with the game's persisted sound switches. */
+    private fun refreshSettings() {
+        applyToggle(coinSoundToggle, game.coinSoundsOn)
+        applyToggle(footstepSoundToggle, game.footstepSoundsOn)
+        applyToggle(actionSoundToggle, game.actionSoundsOn)
+    }
+
+    private fun applyToggle(btn: TextButton, on: Boolean) {
+        btn.style = if (on) toggleOnStyle else toggleOffStyle
+        btn.setText(if (on) "ON" else "OFF")
+    }
+
     fun setRunning() {
         showPanel(null) // clear view while running: top bar + toast only
         setNav(NAV_HIDDEN)
@@ -914,6 +1018,20 @@ class GameHud(
         return pill
     }
 
+    /** One settings row: title + hint on the left, ON/OFF toggle on the right. */
+    private fun settingRow(bg: Drawable, title: String, hint: String, toggle: TextButton): Table {
+        val row = Table()
+        row.background = bg
+        row.pad(6f, 12f, 6f, 6f)
+        val textCol = Table()
+        textCol.add(Label(title, Label.LabelStyle(font, TEXT))).left()
+        textCol.row()
+        textCol.add(Label(hint, Label.LabelStyle(smallFont, MUTED))).left()
+        row.add(textCol).left().growX()
+        row.add(toggle).height(42f).width(84f)
+        return row
+    }
+
     /** One onboarding control row: badge + title + hint, card-styled. */
     private fun controlRow(bg: Drawable, badge: String, title: String, hint: String): Table {
         val row = Table()
@@ -975,12 +1093,21 @@ class GameHud(
         panelHolder.invalidateHierarchy()
     }
 
-    /** Shows the nav with one active tab, or hides it ([NAV_HIDDEN]). */
+    /**
+     * Shows the nav with one active tab ([TAB_NONE] = none highlighted, used
+     * by settings), or hides it ([NAV_HIDDEN]). The settings gear shares the
+     * nav's visibility: it belongs to the menu screens only.
+     */
     private fun setNav(activeTab: Int) {
         navHolder.actor = if (activeTab == NAV_HIDDEN) null else navBar
         for (i in navButtons.indices) {
             navButtons[i].label.color.set(if (i == activeTab) PINK else MUTED)
         }
+        val onMenus = activeTab != NAV_HIDDEN
+        settingsChip.isVisible = onMenus
+        settingsChipCell.size(if (onMenus) 44f else 0f, 44f)
+            .padLeft(if (onMenus) 8f else 0f)
+        settingsChip.invalidateHierarchy()
     }
 
     /** Fade a panel in when it appears instead of snapping. */
@@ -1117,6 +1244,7 @@ class GameHud(
         const val TAB_HOME = 1
         const val TAB_HEROES = 2
         const val TAB_SHOP = 3
+        const val TAB_NONE = 4 // nav visible, nothing highlighted (settings)
         val NAV_LABELS = arrayOf("MAP", "HOME", "HEROES", "SHOP")
 
         // Star Voyage palette: deep purple night, teal go-actions, gold ads,
