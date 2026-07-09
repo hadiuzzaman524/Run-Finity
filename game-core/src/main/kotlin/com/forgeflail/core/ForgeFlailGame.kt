@@ -429,8 +429,8 @@ class ForgeFlailGame(
         // players land straight on Home.
         val savedCharacter = save.loadSelectedCharacter()
         if (savedCharacter < 0) {
-            selectedCharacter = 0
-            previewCharacter = 0
+            selectedCharacter = CharacterCatalog.DEFAULT_INDEX
+            previewCharacter = CharacterCatalog.DEFAULT_INDEX
             hud.showOnboarding()
         } else {
             selectedCharacter = savedCharacter.coerceIn(0, CharacterCatalog.ROSTER.size - 1)

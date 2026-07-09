@@ -126,7 +126,7 @@ class VoxelModelFactory : Disposable {
         val accent = material(spec.accent)
         val dark = material(GOPAL_DARK)
         val f = spec.fat
-        val robot = spec.headStyle == HeadStyle.ROBOT
+        val style = spec.headStyle
 
         box(top, 0f, 0.66f, 0f, 0.72f * f, 0.3f, 0.5f * f)
         box(top, 0f, 1.0f, 0f, 0.8f * f, 0.42f, 0.54f * f)
@@ -136,13 +136,29 @@ class VoxelModelFactory : Disposable {
             box(accent, -0.2f, 1.16f, -0.26f * f, 0.15f, 0.5f, 0.06f)
             box(accent, 0.2f, 1.2f, 0.26f * f, 0.15f, 0.42f, 0.06f)
         }
+        if (spec.hasCape) {
+            box(accent, 0f, 1.40f, 0.24f, 0.50f, 0.10f, 0.08f)
+            box(accent, 0f, 0.95f, 0.30f, 0.62f, 0.88f, 0.05f)
+        }
+        if (style == HeadStyle.MASKED_HERO) {
+            box(accent, 0f, 1.06f, -0.28f * f, 0.24f, 0.24f, 0.05f)
+        }
+        if (style == HeadStyle.ASTRO_DOME) {
+            val pack = material(ASTRO_PACK)
+            box(pack, 0f, 1.02f, 0.34f, 0.52f, 0.62f, 0.16f)
+            box(accent, -0.14f, 1.36f, 0.34f, 0.10f, 0.10f, 0.10f)
+            box(accent, 0.14f, 1.36f, 0.34f, 0.10f, 0.10f, 0.10f)
+            box(accent, 0f, 0.78f, 0.34f, 0.44f, 0.08f, 0.17f)
+        }
 
         box(skin, 0f, 1.72f, 0f, 0.62f, 0.5f, 0.56f)
-        if (spec.headStyle == HeadStyle.BALD_FRINGE || robot) {
+        if (style.crownBox) {
             box(skin, 0f, 2.0f, 0f, 0.46f, 0.12f, 0.42f)
         }
-        box(skin, -0.34f, 1.7f, -0.04f, 0.07f, 0.16f, 0.14f)
-        box(skin, 0.34f, 1.7f, -0.04f, 0.07f, 0.16f, 0.14f)
+        if (style.showsEars) {
+            box(skin, -0.34f, 1.7f, -0.04f, 0.07f, 0.16f, 0.14f)
+            box(skin, 0.34f, 1.7f, -0.04f, 0.07f, 0.16f, 0.14f)
+        }
 
         when (spec.headStyle) {
             HeadStyle.BALD_FRINGE -> {
@@ -169,19 +185,65 @@ class VoxelModelFactory : Disposable {
                 box(hair, 0f, 2.14f, 0f, 0.05f, 0.18f, 0.05f)
                 box(material(spec.accent, spec.accent, emissiveScale = 0.7f), 0f, 2.26f, 0f, 0.1f, 0.1f, 0.1f)
             }
+            HeadStyle.MASKED_HERO -> {
+                box(hair, 0f, 1.99f, 0.02f, 0.68f, 0.16f, 0.62f)
+                box(hair, 0f, 1.74f, 0.3f, 0.64f, 0.48f, 0.07f)
+                // Eye mask sits behind the eye whites (front -0.30 vs -0.305)
+                // so the eyes render proud of it — no per-style eye redraw.
+                box(accent, 0f, 1.78f, -0.285f, 0.64f, 0.24f, 0.03f)
+            }
+            HeadStyle.NINJA_WRAP -> {
+                box(hair, 0f, 1.99f, 0.02f, 0.68f, 0.16f, 0.62f)
+                box(hair, 0f, 1.72f, 0.3f, 0.64f, 0.52f, 0.07f)
+                box(hair, -0.33f, 1.70f, 0f, 0.06f, 0.48f, 0.56f)
+                box(hair, 0.33f, 1.70f, 0f, 0.06f, 0.48f, 0.56f)
+                box(hair, 0f, 1.55f, -0.285f, 0.62f, 0.26f, 0.03f)
+                box(accent, 0f, 1.92f, -0.02f, 0.66f, 0.09f, 0.62f)
+                box(accent, 0.10f, 1.76f, 0.34f, 0.09f, 0.30f, 0.04f)
+                box(accent, -0.06f, 1.80f, 0.34f, 0.09f, 0.22f, 0.04f)
+            }
+            HeadStyle.KNIGHT_HELM -> {
+                box(hair, 0f, 2.0f, 0f, 0.70f, 0.18f, 0.64f)
+                box(hair, -0.345f, 1.70f, 0.02f, 0.06f, 0.52f, 0.60f)
+                box(hair, 0.345f, 1.70f, 0.02f, 0.06f, 0.52f, 0.60f)
+                box(hair, 0f, 1.70f, 0.30f, 0.64f, 0.50f, 0.06f)
+                box(hair, 0f, 1.92f, -0.285f, 0.64f, 0.12f, 0.04f)
+                box(hair, 0f, 1.54f, -0.285f, 0.64f, 0.20f, 0.04f)
+                box(accent, 0f, 2.16f, -0.02f, 0.10f, 0.16f, 0.42f)
+                box(accent, 0f, 2.02f, 0.30f, 0.08f, 0.26f, 0.10f)
+            }
+            HeadStyle.ASTRO_DOME -> {
+                box(hair, 0f, 2.01f, 0f, 0.74f, 0.16f, 0.68f)
+                box(hair, -0.35f, 1.73f, 0f, 0.06f, 0.56f, 0.68f)
+                box(hair, 0.35f, 1.73f, 0f, 0.06f, 0.56f, 0.68f)
+                box(hair, 0f, 1.73f, 0.32f, 0.70f, 0.56f, 0.06f)
+                box(hair, 0f, 1.44f, -0.02f, 0.74f, 0.08f, 0.64f)
+                // Tinted glass in front of the whole face; blended parts draw
+                // after opaque so the face shows through.
+                box(Material(
+                    ColorAttribute.createDiffuse(ASTRO_GLASS),
+                    BlendingAttribute(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA, 0.35f),
+                ), 0f, 1.75f, -0.33f, 0.58f, 0.42f, 0.03f)
+            }
         }
 
-        val eyeWhite = if (robot) material(spec.accent, spec.accent, emissiveScale = 0.6f) else material(Color.WHITE)
+        val eyeWhite = if (style.emissiveEyes) material(spec.accent, spec.accent, emissiveScale = 0.6f) else material(Color.WHITE)
         box(eyeWhite, -0.14f, 1.78f, -0.29f, 0.13f, 0.14f, 0.03f)
         box(eyeWhite, 0.14f, 1.78f, -0.29f, 0.13f, 0.14f, 0.03f)
-        if (!robot) {
+        if (!style.emissiveEyes) {
             box(dark, -0.13f, 1.77f, -0.305f, 0.055f, 0.07f, 0.02f)
             box(dark, 0.13f, 1.77f, -0.305f, 0.055f, 0.07f, 0.02f)
+        }
+        if (style.showsBrows) {
             box(hair, -0.14f, 1.89f, -0.29f, 0.15f, 0.05f, 0.03f)
             box(hair, 0.14f, 1.89f, -0.29f, 0.15f, 0.05f, 0.03f)
+        }
+        if (style.showsNose) {
             box(skin, 0f, 1.68f, -0.33f, 0.12f, 0.17f, 0.12f)
         }
-        box(material(GOPAL_MOUTH), 0f, 1.56f, -0.29f, 0.22f, 0.05f, 0.03f)
+        if (style.showsMouth) {
+            box(material(GOPAL_MOUTH), 0f, 1.56f, -0.29f, 0.22f, 0.05f, 0.03f)
+        }
         return flushBoxes()
     }
 
@@ -642,6 +704,8 @@ class VoxelModelFactory : Disposable {
         private val GRASS = Color.valueOf("7BC950")
         private val GOPAL_DARK = Color.valueOf("22201D")
         private val GOPAL_MOUTH = Color.valueOf("A64633")
+        private val ASTRO_PACK = Color.valueOf("D7DDE6")
+        private val ASTRO_GLASS = Color.valueOf("9ED4F2")
         private val COIN_GOLD = Color.valueOf("FFD54F")
         private val COIN_GLOW = Color.valueOf("FF9F1C")
         private val BARRIER_RED = Color.valueOf("EF3E36")
