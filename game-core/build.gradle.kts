@@ -12,4 +12,9 @@ kotlin {
 dependencies {
     api(libs.gdx.core)
     api(libs.gdx.freetype) // crisp density-sized HUD fonts (GameHud)
+    testImplementation(kotlin("test"))
+}
+
+tasks.test {
+    useJUnitPlatform()
 }

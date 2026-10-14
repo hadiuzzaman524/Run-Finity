@@ -11,6 +11,7 @@ import com.badlogic.gdx.graphics.PerspectiveCamera
 import com.badlogic.gdx.graphics.g3d.Environment
 import com.badlogic.gdx.graphics.g3d.ModelBatch
 import com.badlogic.gdx.graphics.g3d.ModelInstance
+import com.badlogic.gdx.graphics.g3d.attributes.BlendingAttribute
 import com.badlogic.gdx.graphics.g3d.attributes.ColorAttribute
 import com.badlogic.gdx.graphics.g3d.environment.DirectionalLight
 import com.badlogic.gdx.input.GestureDetector
@@ -78,8 +79,14 @@ class ForgeFlailGame(
     private lateinit var armsRight: kotlin.Array<ModelInstance>
     private lateinit var swordInstance: ModelInstance
     private lateinit var coinInstances: kotlin.Array<ModelInstance>
+    private lateinit var powerGemInstances: kotlin.Array<ModelInstance>
     private lateinit var barrierInstancesByLevel: kotlin.Array<kotlin.Array<ModelInstance>>
     private lateinit var shadowInstance: ModelInstance
+
+    // Boost aura: fiery ring under the runner while a power-gem boost runs.
+    private lateinit var auraInstance: ModelInstance
+    private lateinit var auraBlendOuter: BlendingAttribute // cached in create(): plain field writes in render
+    private lateinit var auraBlendInner: BlendingAttribute
 
     // Coin-burst sparkles: fixed pool, plain float state, zero allocation.
     private lateinit var sparkleInstances: kotlin.Array<ModelInstance>
@@ -103,6 +110,19 @@ class ForgeFlailGame(
     private var coinSound: Sound? = null
     private var jumpSound: Sound? = null
     private var crashSound: Sound? = null
+    // One footfall sample (assets/sfx/footstep.wav) cut straight out of a real
+    // walking recording. Triggered per foot strike in render() — synced to
+    // the leg-swing animation via stepPhase — rather than a free-running
+    // loop, so the sound always lands on the visual footfall.
+    private var footstepSound: Sound? = null
+
+    // Sound toggles (settings screen). Read by the HUD, persisted on toggle.
+    var coinSoundsOn = true
+        private set
+    var footstepSoundsOn = true
+        private set
+    var actionSoundsOn = true
+        private set
 
     // --- run/session state (plain fields; no per-frame objects) -------------
     private var created = false
@@ -112,10 +132,15 @@ class ForgeFlailGame(
     private var coinDingCooldown = 0f
     private var coinSpinDegrees = 0f
     private var runPhase = 0f
+    private var stepPhase = 0f // footfall clock: one step sound every PI radians of runPhase
     private var playerYaw = 180f // faces the camera in the menu, -Z when running
     private var selectedCharacter = 0
     private var characterSelectOpen = false
+    private var homeOpen = false // Home tab shares the select camera close-up
     private var deathTilt = 0f
+    private var boostTrailCooldown = 0f
+    private var auraPhase = 0f // dedicated pulse clock (runPhase freezes mid-air)
+    private var fireRingCooldown = 0f
 
     // Heroes screen: the roster index on the turntable. Browsing is free;
     // [selectedCharacter] (the equipped hero) only changes through
@@ -162,7 +187,7 @@ class ForgeFlailGame(
             // Instant feedback: ding (slight pitch variation), counter, sparkles.
             // The ding is rate-limited: fast coin trails otherwise spam the
             // sound pool, a frame-hitch source on budget phones.
-            if (coinDingCooldown <= 0f) {
+            if (coinDingCooldown <= 0f && coinSoundsOn) {
                 coinSound?.play(0.6f, 0.95f + MathUtils.random(0.12f), 0f)
                 coinDingCooldown = COIN_DING_MIN_INTERVAL
             }
@@ -171,14 +196,14 @@ class ForgeFlailGame(
         }
 
         override fun onPlayerDied(distanceMeters: Int, runCoins: Int) {
-            crashSound?.play(0.9f)
+            if (actionSoundsOn) crashSound?.play(0.9f)
             val newBest = distanceMeters > bestScore
             if (newBest) bestScore = distanceMeters
             hud?.onRunEnded(distanceMeters, runCoins, bestScore, newBest, runner.canRevive, !coinsDoubledThisRun && runCoins > 0)
         }
 
         override fun onLevelCompleted(level: LevelSpec) {
-            coinSound?.play(0.8f, 1.3f, 0f) // triumphant high ding; run continues
+            if (coinSoundsOn) coinSound?.play(0.8f, 1.3f, 0f) // triumphant high ding; run continues
             val next = selectedLevelIndex + 1
             if (next < LevelCatalog.LEVELS.size && unlockedLevels <= next) {
                 unlockedLevels = next + 1
@@ -186,6 +211,20 @@ class ForgeFlailGame(
             } else {
                 hud?.toast(GOAL_REACHED_TOAST)
             }
+        }
+
+        override fun onBoostStarted() {
+            if (coinSoundsOn) coinSound?.play(0.9f, 1.5f, 0f)
+            hud?.toast(BOOST_TOAST) // precomputed: fires inside the render path
+        }
+
+        override fun onBoostEnded() {
+            boostTrailCooldown = 0f
+        }
+
+        override fun onBarrierSmashed(lane: Int) {
+            if (actionSoundsOn) crashSound?.play(0.25f, 1.7f, 0f) // light "crunch", not the death crash
+            spawnCoinBurst(RunnerSystem.LANE_X[lane], 0.8f, 0f)
         }
     }
 
@@ -272,6 +311,11 @@ class ForgeFlailGame(
                 Input.Keys.RIGHT, Input.Keys.D -> runner.moveRight()
                 Input.Keys.SPACE, Input.Keys.UP, Input.Keys.W -> tryJump()
                 Input.Keys.ENTER -> if (runner.state != RunnerSystem.State.RUNNING) startRun()
+                Input.Keys.P, Input.Keys.ESCAPE -> when (runner.state) {
+                    RunnerSystem.State.RUNNING -> pauseRun()
+                    RunnerSystem.State.PAUSED -> resumeRun()
+                    else -> return false
+                }
                 else -> return false
             }
             return true
@@ -333,6 +377,7 @@ class ForgeFlailGame(
             val trackModel = when (LevelCatalog.LEVELS[level].theme) {
                 LevelTheme.TOWN_ROAD -> voxelFactory.createTrackTile()
                 LevelTheme.VILLAGE_ROAD -> voxelFactory.createVillageTrackTile()
+                LevelTheme.MOUNTAIN_PASS -> voxelFactory.createMountainTrackTile()
             }
             kotlin.Array(2) { ModelInstance(trackModel) }
         }
@@ -349,21 +394,31 @@ class ForgeFlailGame(
         voxelFactory.applyRarityTraits(swordInstance, equippedRarity)
         val coinModel = voxelFactory.createCoin()
         coinInstances = kotlin.Array(RunnerSystem.COIN_POOL_SIZE) { ModelInstance(coinModel) }
+        val powerGemModel = voxelFactory.createPowerGem()
+        powerGemInstances = kotlin.Array(RunnerSystem.POWER_GEM_POOL_SIZE) { ModelInstance(powerGemModel) }
         barrierInstancesByLevel = kotlin.Array(LevelCatalog.LEVELS.size) { level ->
             val barrierModel = when (LevelCatalog.LEVELS[level].theme) {
                 LevelTheme.TOWN_ROAD -> voxelFactory.createBarrier()
                 LevelTheme.VILLAGE_ROAD -> voxelFactory.createLogBarrier()
+                LevelTheme.MOUNTAIN_PASS -> voxelFactory.createRockBarrier()
             }
             kotlin.Array(RunnerSystem.BARRIER_POOL_SIZE) { ModelInstance(barrierModel) }
         }
 
         shadowInstance = ModelInstance(voxelFactory.createBlobShadow())
+        auraInstance = ModelInstance(voxelFactory.createBoostAura())
+        auraBlendOuter = auraInstance.materials.get(0).get(BlendingAttribute.Type) as BlendingAttribute
+        auraBlendInner = auraInstance.materials.get(1).get(BlendingAttribute.Type) as BlendingAttribute
         val sparkleModel = voxelFactory.createSparkle()
         sparkleInstances = kotlin.Array(MAX_SPARKLES) { ModelInstance(sparkleModel) }
 
         coinSound = Gdx.audio.newSound(Gdx.files.internal("sfx/coin.wav"))
         jumpSound = Gdx.audio.newSound(Gdx.files.internal("sfx/jump.wav"))
         crashSound = Gdx.audio.newSound(Gdx.files.internal("sfx/crash.wav"))
+        footstepSound = Gdx.audio.newSound(Gdx.files.internal("sfx/footstep.wav"))
+        coinSoundsOn = save.loadCoinSoundsOn()
+        footstepSoundsOn = save.loadFootstepSoundsOn()
+        actionSoundsOn = save.loadActionSoundsOn()
 
         // -- HUD + input (UI first, then swipes, then keys)
         val hud = GameHud(this, economy, runner)
@@ -374,12 +429,13 @@ class ForgeFlailGame(
         // players land straight on Home.
         val savedCharacter = save.loadSelectedCharacter()
         if (savedCharacter < 0) {
-            selectedCharacter = 0
-            previewCharacter = 0
+            selectedCharacter = CharacterCatalog.DEFAULT_INDEX
+            previewCharacter = CharacterCatalog.DEFAULT_INDEX
             hud.showOnboarding()
         } else {
             selectedCharacter = savedCharacter.coerceIn(0, CharacterCatalog.ROSTER.size - 1)
             previewCharacter = selectedCharacter
+            homeOpen = true
             hud.setHome(bestScore)
         }
 
@@ -393,10 +449,11 @@ class ForgeFlailGame(
         if (coinDingCooldown > 0f) coinDingCooldown -= delta
         runner.update(delta)
 
-        // Track tiles scroll with the world and leapfrog behind the camera.
+        // Track tiles scroll with the world (boost included) and leapfrog
+        // behind the camera.
         if (runner.state == RunnerSystem.State.RUNNING) {
             for (i in trackTileZ.indices) {
-                trackTileZ[i] += runner.speed * delta
+                trackTileZ[i] += runner.scrollSpeed * delta
                 if (trackTileZ[i] > TRACK_RESET_Z) trackTileZ[i] -= 2f * VoxelModelFactory.TRACK_TILE_LENGTH
             }
         }
@@ -424,7 +481,37 @@ class ForgeFlailGame(
             val targetYaw = if (running) 0f else 180f
             playerYaw += (targetYaw - playerYaw) * (8f * delta).coerceAtMost(1f)
         }
-        if (running && runner.playerY == 0f) runPhase += delta * runner.speed * 1.4f
+        if (running && runner.playerY == 0f) {
+            runPhase += delta * runner.scrollSpeed * 1.4f
+            // Footsteps ride the exact same clock as the leg swing: one foot
+            // strikes every half swing cycle (PI), so the sample always lands
+            // on the visual footfall instead of drifting against it.
+            stepPhase += delta * runner.scrollSpeed * 1.4f
+            if (stepPhase >= MathUtils.PI) {
+                stepPhase -= MathUtils.PI
+                if (footstepSoundsOn) footstepSound?.play(0.55f, 0.95f + MathUtils.random(0.1f), 0f)
+            }
+        } else {
+            stepPhase = 0f // airborne/idle: the next landing starts a fresh cycle
+        }
+        // Boosted runs leave a sparkle trail at the heels — the "power mode is
+        // on" cue kids see without reading (pooled sparks, zero allocation).
+        if (running && runner.isBoosted) {
+            boostTrailCooldown -= delta
+            if (boostTrailCooldown <= 0f) {
+                boostTrailCooldown = BOOST_TRAIL_INTERVAL
+                spawnSparks(runner.playerX, 0.35f, 0.6f, BOOST_TRAIL_SPARKS)
+            }
+            // Ring fire: embers rise off the aura circle itself.
+            fireRingCooldown -= delta
+            if (fireRingCooldown <= 0f) {
+                fireRingCooldown = FIRE_RING_INTERVAL
+                spawnFireSparks(runner.playerX, runner.boostFraction)
+            }
+            auraPhase += delta * AURA_PULSE_SPEED
+        } else {
+            auraPhase = 0f
+        }
         val bob = if (running && runner.playerY == 0f) Math.abs(MathUtils.sin(runPhase)) * 0.06f else 0f
         val swing = if (running) MathUtils.sin(runPhase) * 38f else 0f
         val px = runner.playerX
@@ -467,13 +554,18 @@ class ForgeFlailGame(
 
         // Camera rig: eases between the chase framing and the select close-up
         // that frames the runner in the top section of the screen, clear of
-        // the menu panel below. Soft x-follow keeps side lanes framed; look-at
-        // shares the x-offset so it stays a pure translation, no view drift.
+        // the menu panel below. The paused card shares the close-up so the
+        // frozen runner stays fully visible above it, and Home greets the
+        // player with the same full-body hero framing. Soft x-follow keeps
+        // side lanes framed; look-at shares the x-offset so it stays a pure
+        // translation, no view drift.
+        val closeUp = characterSelectOpen || homeOpen ||
+            runner.state == RunnerSystem.State.PAUSED
         val camEase = (6f * delta).coerceAtMost(1f)
-        camY += ((if (characterSelectOpen) SELECT_CAM_Y else CHASE_CAM_Y) - camY) * camEase
-        camZ += ((if (characterSelectOpen) SELECT_CAM_Z else CHASE_CAM_Z) - camZ) * camEase
-        lookY += ((if (characterSelectOpen) SELECT_LOOK_Y else CHASE_LOOK_Y) - lookY) * camEase
-        lookZ += ((if (characterSelectOpen) SELECT_LOOK_Z else CHASE_LOOK_Z) - lookZ) * camEase
+        camY += ((if (closeUp) SELECT_CAM_Y else CHASE_CAM_Y) - camY) * camEase
+        camZ += ((if (closeUp) SELECT_CAM_Z else CHASE_CAM_Z) - camZ) * camEase
+        lookY += ((if (closeUp) SELECT_LOOK_Y else CHASE_LOOK_Y) - lookY) * camEase
+        lookZ += ((if (closeUp) SELECT_LOOK_Z else CHASE_LOOK_Z) - lookZ) * camEase
         camera.position.set(px * 0.45f, camY, camZ)
         camera.up.set(0f, 1f, 0f)
         camera.lookAt(px * 0.45f, lookY, lookZ)
@@ -484,6 +576,22 @@ class ForgeFlailGame(
         shadowInstance.transform
             .setToTranslation(px, 0.015f, 0f)
             .scale(shadowScale, 1f, shadowScale)
+
+        // Boost aura ring: ground-locked like the shadow; shrinks with the
+        // remaining boost so the circle doubles as the boost timer, and
+        // flicker-fades over the last stretch.
+        if (running && runner.isBoosted) {
+            val frac = runner.boostFraction
+            val pulse = 1f + MathUtils.sin(auraPhase) * 0.06f
+            val auraScale = (0.55f + 0.45f * frac) * pulse
+            auraInstance.transform
+                .setToTranslation(px, 0.05f, 0f) // above shadow's y=0.015, no z-fight
+                .rotate(Vector3.Y, coinSpinDegrees)
+                .scale(auraScale, 1f, auraScale)
+            val fade = (frac * 5f).coerceAtMost(1f) // fade-out over the last 12 m
+            auraBlendOuter.opacity = 0.85f * fade
+            auraBlendInner.opacity = 0.70f * fade
+        }
 
         // Sparkle particle tick (fixed pool, float math only).
         for (i in 0 until MAX_SPARKLES) {
@@ -516,6 +624,14 @@ class ForgeFlailGame(
                 .rotate(Vector3.X, 90f)
             modelBatch.render(coinInstances[i], environment)
         }
+        for (i in runner.powerGems.indices) {
+            val gem = runner.powerGems[i]
+            if (!gem.active) continue
+            powerGemInstances[i].transform
+                .setToTranslation(RunnerSystem.LANE_X[gem.lane], POWER_GEM_BASE_Y, gem.z)
+                .rotate(Vector3.Y, coinSpinDegrees)
+            modelBatch.render(powerGemInstances[i], environment)
+        }
         for (i in runner.barriers.indices) {
             val barrier = runner.barriers[i]
             if (!barrier.active) continue
@@ -531,6 +647,7 @@ class ForgeFlailGame(
                 .scale(s, s, s)
             modelBatch.render(sparkleInstances[i], environment)
         }
+        if (running && runner.isBoosted) modelBatch.render(auraInstance, environment)
         modelBatch.render(shadowInstance, environment) // blended: batch sorts it last
         modelBatch.end()
 
@@ -546,6 +663,9 @@ class ForgeFlailGame(
 
     override fun pause() {
         if (!created) return
+        // Backgrounding mid-run freezes it: coming back lands on the paused
+        // panel instead of an instant barrier face-plant.
+        if (runner.state == RunnerSystem.State.RUNNING) pauseRun()
         save.persistRunner(
             economy.gold, economy.gems, bestScore, equippedRarity.ordinal, selectedCharacter,
             unlockedCharacters, unlockedLevels, selectedLevelIndex
@@ -559,11 +679,12 @@ class ForgeFlailGame(
         coinSound?.dispose()
         jumpSound?.dispose()
         crashSound?.dispose()
+        footstepSound?.dispose()
         hud?.dispose()
     }
 
     private fun tryJump() {
-        if (runner.state == RunnerSystem.State.RUNNING && runner.playerY == 0f) {
+        if (runner.state == RunnerSystem.State.RUNNING && runner.playerY == 0f && actionSoundsOn) {
             jumpSound?.play(0.45f)
         }
         runner.jump()
@@ -571,6 +692,10 @@ class ForgeFlailGame(
 
     /** Six sparks from the pool at the pickup point; skips silently when full. */
     private fun spawnCoinBurst(x: Float, y: Float, z: Float) {
+        spawnSparks(x, y, z, SPARKS_PER_COIN)
+    }
+
+    private fun spawnSparks(x: Float, y: Float, z: Float, count: Int) {
         var spawned = 0
         for (i in 0 until MAX_SPARKLES) {
             if (sparkleLife[i] > 0f) continue
@@ -581,7 +706,25 @@ class ForgeFlailGame(
             sparkleVY[i] = MathUtils.random(2.5f, 5f)
             sparkleVZ[i] = MathUtils.random(-0.5f, 2f)
             sparkleLife[i] = MathUtils.random(0.3f, 0.45f)
-            if (++spawned == SPARKS_PER_COIN) return
+            if (++spawned == count) return
+        }
+    }
+
+    /** Embers rising from a random point on the aura circle (pooled, no alloc). */
+    private fun spawnFireSparks(px: Float, frac: Float) {
+        val r = AURA_RADIUS * (0.55f + 0.45f * frac) // flames track the shrinking ring
+        var spawned = 0
+        for (i in 0 until MAX_SPARKLES) {
+            if (sparkleLife[i] > 0f) continue
+            val a = MathUtils.random(0f, MathUtils.PI2)
+            sparkleX[i] = px + MathUtils.cos(a) * r
+            sparkleY[i] = 0.1f
+            sparkleZ[i] = MathUtils.sin(a) * r
+            sparkleVX[i] = MathUtils.random(-0.4f, 0.4f)
+            sparkleVY[i] = MathUtils.random(3.5f, 5.5f) // strongly upward = fire
+            sparkleVZ[i] = MathUtils.random(-0.4f, 0.4f)
+            sparkleLife[i] = MathUtils.random(0.4f, 0.55f)
+            if (++spawned == FIRE_RING_SPARKS) return
         }
     }
 
@@ -592,9 +735,24 @@ class ForgeFlailGame(
     /** "RUN!" / "Run again" buttons. */
     fun startRun() {
         characterSelectOpen = false
+        homeOpen = false
         coinsDoubledThisRun = false
         deathTilt = 0f
         runner.startRun(LevelCatalog.LEVELS[selectedLevelIndex])
+        hud?.setRunning()
+    }
+
+    /** Pause button on the run screen (also fired when the app backgrounds). */
+    fun pauseRun() {
+        if (runner.state != RunnerSystem.State.RUNNING) return
+        runner.pauseRun()
+        hud?.showPaused()
+    }
+
+    /** RESUME on the paused panel. */
+    fun resumeRun() {
+        if (runner.state != RunnerSystem.State.PAUSED) return
+        runner.resumeRun()
         hud?.setRunning()
     }
 
@@ -619,6 +777,7 @@ class ForgeFlailGame(
     /** HOME nav tab (also the game-over panel's Home button). */
     fun backToMenu() {
         characterSelectOpen = false
+        homeOpen = true
         clearCrashedRun()
         hud?.setHome(bestScore)
     }
@@ -626,6 +785,7 @@ class ForgeFlailGame(
     /** MAP nav tab: the delivery route with every level and its unlock goal. */
     fun openMap() {
         characterSelectOpen = false
+        homeOpen = false
         clearCrashedRun()
         hud?.showMap()
     }
@@ -633,8 +793,36 @@ class ForgeFlailGame(
     /** SHOP nav tab: sword chest (odds disclosed) + gem packs. */
     fun openShop() {
         characterSelectOpen = false
+        homeOpen = false
         clearCrashedRun()
         hud?.showShop()
+    }
+
+    /** Gear icon in the top bar: sound toggles (coin/footstep/action). */
+    fun openSettings() {
+        characterSelectOpen = false
+        homeOpen = false
+        clearCrashedRun()
+        hud?.showSettings()
+    }
+
+    fun toggleCoinSounds() {
+        coinSoundsOn = !coinSoundsOn
+        persistSoundSettings()
+    }
+
+    fun toggleFootstepSounds() {
+        footstepSoundsOn = !footstepSoundsOn
+        persistSoundSettings()
+    }
+
+    fun toggleActionSounds() {
+        actionSoundsOn = !actionSoundsOn
+        persistSoundSettings()
+    }
+
+    private fun persistSoundSettings() {
+        save.persistSoundSettings(coinSoundsOn, footstepSoundsOn, actionSoundsOn)
     }
 
     /** "LET'S GO!" on the first-launch quest intro — straight to the hero picker. */
@@ -645,6 +833,7 @@ class ForgeFlailGame(
     /** HEROES nav tab; also the onboarding hero pick on first launch. */
     fun openCharacterSelect() {
         characterSelectOpen = true
+        homeOpen = false
         selectDragCooldown = 0f
         selectYawVelocity = 0f
         previewCharacter = selectedCharacter
@@ -652,9 +841,10 @@ class ForgeFlailGame(
         refreshHeroesScreen()
     }
 
-    /** Leaving the game-over screen: stand the character back up, clear debris. */
+    /** Leaving the game-over/paused screen: stand back up, clear debris. */
     private fun clearCrashedRun() {
         if (runner.state == RunnerSystem.State.DEAD) runner.resetToIdle()
+        if (runner.state == RunnerSystem.State.PAUSED) runner.quitRun() // banks the run so far
         deathTilt = 0f
     }
 
@@ -668,7 +858,9 @@ class ForgeFlailGame(
     /**
      * The Heroes screen action button: equips the previewed hero, or unlocks
      * it first when it still costs gems (earned free at 1 per 25 m — heroes
-     * are cosmetic, so this is expression, never progression).
+     * are cosmetic, so this is expression, never progression). When the hero
+     * is already equipped the button reads "EQUIPPED - LET'S RUN!" and does
+     * exactly that: starts a run with it.
      */
     fun equipOrUnlockCharacter() {
         val spec = CharacterCatalog.ROSTER[previewCharacter]
@@ -680,6 +872,9 @@ class ForgeFlailGame(
             }
             unlockedCharacters = unlockedCharacters or bit
             hud?.toast("${spec.displayName} joined your team!")
+        } else if (previewCharacter == selectedCharacter) {
+            startRun()
+            return
         }
         selectedCharacter = previewCharacter
         refreshHeroesScreen()
@@ -729,12 +924,20 @@ class ForgeFlailGame(
     companion object {
         private const val TAG = "ForgeFlail"
         private const val GOAL_REACHED_TOAST = "Level goal reached - keep running for a new best!"
+        private const val BOOST_TOAST = "POWER BOOST! Smash through everything!"
         private const val MAX_FRAME_DELTA = 1f / 30f
         private const val COIN_DING_MIN_INTERVAL = 0.08f
         private const val COIN_BASE_Y = 0.68f
+        private const val POWER_GEM_BASE_Y = 0.3f
+        private const val BOOST_TRAIL_INTERVAL = 0.07f
+        private const val BOOST_TRAIL_SPARKS = 2
+        private const val FIRE_RING_INTERVAL = 0.09f
+        private const val FIRE_RING_SPARKS = 2
+        private const val AURA_RADIUS = 1.12f // flame spawn radius, between the ring bands
+        private const val AURA_PULSE_SPEED = 9f
         private const val COIN_SPIN_DEG_PER_SEC = 220f
         private const val TRACK_RESET_Z = 30f
-        private const val MAX_SPARKLES = 24
+        private const val MAX_SPARKLES = 40 // heel trail + ring fire + coin bursts, peak ~28
         private const val SPARKS_PER_COIN = 6
 
         // Chase framing: low behind the runner, looking down the track.
